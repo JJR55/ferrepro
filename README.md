@@ -60,7 +60,7 @@ JSON.parse(localStorage.getItem('ferrepro_backups'))
 
 ### Contraseña por defecto
 - **Usuario:** `admin`
-- **Contraseña inicial:** `ferrepro2026`
+- **Contraseña inicial:** ``
 
 ### Cambiar contraseña desde la app
 1. Click en botón **🔐 Contraseña** en la barra superior
