@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FerrePro — Sistema de Inventario</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F5F2EB;--surface:#FDFCF8;--surface2:#EDEBE3;
+  --text:#1A1814;--text2:#6B6860;--text3:#9E9C96;
+  --accent:#C4390A;--accent2:#E8520F;--accent-bg:#FEF0EB;
+  --green:#2D7A4F;--green-bg:#E8F5EE;
+  --amber:#8A5C0A;--amber-bg:#FDF4E0;
+  --red:#9B2020;--red-bg:#FDEAEA;
+  --blue:#1A4F8A;--blue-bg:#E8F0FA;
+  --border:#DDD9CF;--border2:#C8C4BA;
+  --r:10px;--r2:16px;--r3:24px;
+  --shadow:0 1px 3px rgba(0,0,0,.07),0 4px 12px rgba(0,0,0,.05);
+  --shadow2:0 2px 8px rgba(0,0,0,.1),0 12px 32px rgba(0,0,0,.08);
+}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
+h1,h2,h3,h4,h5{font-family:'Syne',sans-serif}
+button{font-family:'DM Sans',sans-serif;cursor:pointer;border:none;outline:none}
+input,select,textarea{font-family:'DM Sans',sans-serif;outline:none}
+
+/* TOPBAR */
+#topbar{background:var(--text);color:#F5F2EB;padding:0 2rem;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+#topbar .logo{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;letter-spacing:-0.5px}
+#topbar .logo span{color:var(--accent2)}
+#topbar .db-status{font-size:12px;color:#888;display:flex;align-items:center;gap:6px}
+#topbar .db-status .dot{width:7px;height:7px;border-radius:50%;background:#4CAF50}
+
+/* TABS */
+#tabs{background:var(--surface);border-bottom:1.5px solid var(--border);display:flex;padding:0 2rem;gap:0;position:sticky;top:60px;z-index:90}
+.tab-btn{padding:14px 22px;font-family:'Syne',sans-serif;font-size:13px;font-weight:600;letter-spacing:.3px;background:none;color:var(--text3);border-bottom:2.5px solid transparent;transition:.2s;text-transform:uppercase}
+.tab-btn:hover{color:var(--text2)}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* CONTENT */
+#app{padding:2rem;max-width:1300px;margin:0 auto}
+.tab-pane{display:none}.tab-pane.active{display:block}
+
+/* CARDS */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:1.5rem;box-shadow:var(--shadow)}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}
+.card-title{font-size:17px;font-weight:700;color:var(--text)}
+.section-title{font-size:22px;font-weight:800;margin-bottom:1.5rem;color:var(--text)}
+
+/* STATS ROW */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:1.75rem}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.25rem}
+.stat-label{font-size:12px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.stat-val{font-family:'Syne',sans-serif;font-size:26px;font-weight:700;color:var(--text)}
+.stat-card.accent{background:var(--accent-bg);border-color:#f0b39a}.stat-card.accent .stat-val{color:var(--accent)}
+.stat-card.green{background:var(--green-bg);border-color:#a8d9bb}.stat-card.green .stat-val{color:var(--green)}
+.stat-card.amber{background:var(--amber-bg);border-color:#f0d080}.stat-card.amber .stat-val{color:var(--amber)}
+.stat-card.red{background:var(--red-bg);border-color:#f0a8a8}.stat-card.red .stat-val{color:var(--red)}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:var(--r);font-size:14px;font-weight:500;transition:.2s;cursor:pointer}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:var(--accent2)}
+.btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)}.btn-secondary:hover{background:var(--border)}
+.btn-sm{padding:6px 12px;font-size:13px;border-radius:8px}
+.btn-danger{background:var(--red-bg);color:var(--red);border:1px solid #f0a8a8}.btn-danger:hover{background:#fdd}
+.btn-green{background:var(--green-bg);color:var(--green);border:1px solid #a8d9bb}.btn-green:hover{background:#c8ecd8}
+.btn-amber{background:var(--amber-bg);color:var(--amber);border:1px solid #f0d080}.btn-amber:hover{background:#fce9a0}
+
+/* TOOLBAR */
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:1.25rem;align-items:center}
+.toolbar .search-box{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:8px 14px;flex:1;min-width:200px}
+.toolbar .search-box input{border:none;background:transparent;width:100%;font-size:14px;color:var(--text)}
+.toolbar .search-box input::placeholder{color:var(--text3)}
+.toolbar select{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:8px 12px;font-size:14px;color:var(--text)}
+
+/* LOGIN */
+#login-screen{position:fixed;inset:0;background:rgba(20,18,14,.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem}
+.login-card{background:var(--surface);border-radius:var(--r3);padding:2rem;max-width:420px;width:100%;box-shadow:var(--shadow2)}
+.login-card h2{font-family:'Syne',sans-serif;font-size:24px;margin-bottom:1rem}
+.login-card .login-group{display:flex;flex-direction:column;gap:10px;margin-bottom:1rem}
+.login-card label{font-size:13px;color:var(--text2)}
+.login-card input{border:1.5px solid var(--border);border-radius:var(--r);padding:10px 12px;font-size:14px;background:var(--surface);color:var(--text)}
+.login-card .login-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:1rem}
+
+/* TABLE */
+.table-wrap{overflow-x:auto;border-radius:var(--r2);border:1px solid var(--border)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+thead tr{background:var(--surface2)}
+th{padding:11px 14px;text-align:left;font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
+td{padding:11px 14px;border-top:1px solid var(--border);color:var(--text);vertical-align:middle}
+tbody tr:hover{background:var(--bg)}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:500}
+.badge-dept{background:var(--blue-bg);color:var(--blue)}
+.badge-low{background:var(--red-bg);color:var(--red)}
+.badge-ok{background:var(--green-bg);color:var(--green)}
+.badge-warn{background:var(--amber-bg);color:var(--amber)}
+.badge-venc{background:var(--red-bg);color:var(--red)}
+.badge-prox{background:var(--amber-bg);color:var(--amber)}
+.badge-vigente{background:var(--green-bg);color:var(--green)}
+.actions-cell{display:flex;gap:6px;flex-wrap:nowrap}
+
+/* MODAL */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(20,18,14,.55);z-index:200;align-items:center;justify-content:center;padding:1rem}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border-radius:var(--r3);padding:2rem;width:100%;max-width:560px;box-shadow:var(--shadow2);max-height:90vh;overflow-y:auto}
+.modal-title{font-size:20px;font-weight:800;margin-bottom:1.5rem;color:var(--text)}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:1.5rem}
+
+/* FORM */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.form-grid.full{grid-template-columns:1fr}
+.form-group{display:flex;flex-direction:column;gap:6px}
+.form-group label{font-size:13px;font-weight:600;color:var(--text2)}
+.form-group input,.form-group select,.form-group textarea{border:1.5px solid var(--border);border-radius:var(--r);padding:9px 12px;font-size:14px;background:var(--surface);color:var(--text);transition:.2s}
+.form-group input:focus,.form-group select:focus{border-color:var(--accent)}
+.form-group.span2{grid-column:span 2}
+
+/* ALERTS PANEL */
+.alerts-panel{margin-bottom:1.5rem}
+.alert-item{display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-radius:var(--r);margin-bottom:8px;border:1px solid}
+.alert-item.warning{background:var(--amber-bg);border-color:#f0d080}
+.alert-item.danger{background:var(--red-bg);border-color:#f0a8a8}
+.alert-item.info{background:var(--blue-bg);border-color:#a8c8f0}
+.alert-icon{font-size:18px;margin-top:1px}
+.alert-text strong{display:block;font-size:14px;font-weight:600;margin-bottom:2px}
+.alert-text span{font-size:13px;color:var(--text2)}
+
+/* IMPORT/EXPORT SECTION */
+.import-export-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem}
+.io-card{background:var(--surface);border:2px dashed var(--border);border-radius:var(--r2);padding:1.5rem;text-align:center;transition:.2s}
+.io-card:hover{border-color:var(--accent);background:var(--accent-bg)}
+.io-icon{font-size:32px;margin-bottom:10px}
+.io-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:6px}
+.io-desc{font-size:13px;color:var(--text3);margin-bottom:12px}
+
+/* TOAST */
+#toast{position:fixed;bottom:2rem;right:2rem;z-index:999;display:flex;flex-direction:column;gap:8px}
+.toast-msg{background:var(--text);color:#F5F2EB;padding:12px 18px;border-radius:var(--r);font-size:14px;box-shadow:var(--shadow2);animation:slideIn .25s ease;display:flex;align-items:center;gap:8px}
+.toast-msg.success::before{content:'✓';background:var(--green);color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+.toast-msg.error::before{content:'✕';background:var(--red);color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+.toast-msg.info::before{content:'i';background:var(--blue);color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;font-style:italic}
+@keyframes slideIn{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
+
+/* LOADING */
+#loading{position:fixed;inset:0;background:var(--bg);z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+#loading .logo-big{font-family:'Syne',sans-serif;font-size:36px;font-weight:800}
+#loading .logo-big span{color:var(--accent)}
+#loading .spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* PROVEEDOR DETAIL */
+.prov-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem}
+
+/* DASHBOARD WIDGETS */
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-top:1.5rem}
+@media(max-width:780px){.dash-grid{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.import-export-grid{grid-template-columns:1fr}.prov-grid{grid-template-columns:1fr}}
+
+/* COLOR DEPT */
+.dept-Repuesto,.dept-Repuestos{background:#EDE8FD;color:#4D35B8}
+.dept-Ferretería{background:#E8F0FA;color:#1A4F8A}
+.dept-Plomería{background:#E8F5EE;color:#2D7A4F}
+.dept-Electricidad{background:#FDF4E0;color:#8A5C0A}
+.dept-Hogar{background:#FDEAEA;color:#9B2020}
+
+/* CHART BAR SIMPLE */
+.mini-bar-wrap{display:flex;flex-direction:column;gap:8px;margin-top:1rem}
+.mini-bar-row{display:flex;align-items:center;gap:10px;font-size:13px}
+.mini-bar-label{min-width:90px;color:var(--text2);font-weight:500}
+.mini-bar-track{flex:1;height:8px;background:var(--surface2);border-radius:10px;overflow:hidden}
+.mini-bar-fill{height:100%;border-radius:10px;transition:width .6s ease}
+.mini-bar-count{min-width:30px;text-align:right;font-weight:600;color:var(--text)}
+
+/* EMPTY STATE */
+.empty{text-align:center;padding:3rem 1rem;color:var(--text3)}
+.empty-icon{font-size:42px;margin-bottom:12px}
+.empty h3{font-size:16px;font-weight:600;color:var(--text2);margin-bottom:6px}
+.empty p{font-size:14px}
+
+/* SCROLLBAR */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:10px}
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="logo-big">Ferre<span>Pro</span></div>
+  <div class="spinner"></div>
+  <p style="font-size:14px;color:var(--text3)">Iniciando base de datos…</p>
+</div>
+
+<div id="topbar" style="display:none">
+  <div class="logo">Ferre<span>Pro</span></div>
+  <div class="db-status"><div class="dot"></div><span id="db-info">SQLite activo</span></div>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn-secondary btn-sm" onclick="abrirModal('modal-cambiar-pass')">🔐 Contraseña</button>
+    <button class="btn btn-secondary btn-sm" onclick="abrirModal('modal-backups')">💾 Backups</button>
+    <button class="btn btn-secondary btn-sm" onclick="cerrarSesion()">Salir</button>
+  </div>
+</div>
+
+<div id="login-screen">
+  <div class="login-card">
+    <h2>Iniciar Sesión</h2>
+    <div class="login-group">
+      <label for="login-user">Usuario</label>
+      <input id="login-user" type="text" placeholder="Administrador" value="admin">
+    </div>
+    <div class="login-group">
+      <label for="login-pass">Contraseña</label>
+      <input id="login-pass" type="password" placeholder="Contraseña segura">
+    </div>
+    <div class="login-group" id="login-note" style="font-size:13px;color:var(--text3);display:none"></div>
+    <div class="login-actions">
+      <button class="btn btn-secondary" onclick="verificarSesion()">Entrar</button>
+    </div>
+  </div>
+</div>
+
+<div id="tabs" style="display:none">
+  <button class="tab-btn active" onclick="switchTab('dashboard', event)">📊 Panel</button>
+  <button class="tab-btn" onclick="switchTab('inventario', event)">📦 Inventario</button>
+  <button class="tab-btn" onclick="switchTab('proveedores', event)">🏭 Proveedores</button>
+  <button class="tab-btn" onclick="switchTab('facturas', event)">🧾 Cuentas por Pagar</button>
+</div>
+
+<div id="app" style="display:none">
+
+  <!-- PANEL PRINCIPAL -->
+  <div id="tab-dashboard" class="tab-pane active">
+    <h2 class="section-title">Panel General</h2>
+    <div class="stats-row" id="dash-stats"></div>
+    <div id="dash-alerts"></div>
+    <div class="dash-grid">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Artículos por Departamento</span></div>
+        <div id="dept-chart" class="mini-bar-wrap"></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Próximos Vencimientos</span></div>
+        <div id="prox-venc-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INVENTARIO -->
+  <div id="tab-inventario" class="tab-pane">
+    <h2 class="section-title">Inventario</h2>
+
+    <div class="import-export-grid">
+      <div class="io-card">
+        <div class="io-icon">📥</div>
+        <div class="io-title">Importar desde Excel</div>
+        <div class="io-desc">Sube un archivo .xlsx con columnas: Código, Nombre, Departamento, Precio de Costo, Precio de Venta, Stock, Stock Mínimo</div>
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+          Seleccionar archivo <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importarExcel(this)">
+        </label>
+        <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="descargarPlantilla()">📋 Descargar plantilla</button>
+      </div>
+      <div class="io-card">
+        <div class="io-icon">📤</div>
+        <div class="io-title">Exportar Inventario</div>
+        <div class="io-desc">Descarga todos los artículos o solo los que tienen stock bajo para realizar compras</div>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="exportarExcel()">📊 Todo a Excel</button>
+          <button class="btn btn-amber btn-sm" onclick="exportarStockBajoPDF()">⚠️ Stock Bajo PDF</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-box">
+        <span>🔍</span>
+        <input type="text" id="inv-search" placeholder="Buscar por nombre, código…" oninput="filtrarInventario()">
+      </div>
+      <select id="inv-dept" onchange="filtrarInventario()">
+        <option value="">Todos los departamentos</option>
+        <option>Repuesto</option><option>Ferretería</option>
+        <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
+      </select>
+      <select id="inv-stock" onchange="filtrarInventario()">
+        <option value="">Todo el stock</option>
+        <option value="bajo">Stock bajo</option>
+        <option value="ok">Stock normal</option>
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalArticulo()">+ Nuevo Artículo</button>
+    </div>
+
+    <div class="table-wrap">
+      <table id="tabla-inv">
+        <thead><tr>
+          <th>Código</th><th>Nombre</th><th>Departamento</th>
+          <th>Precio Costo</th><th>Total Costo</th><th>Precio Venta</th><th>Total Venta</th>
+          <th>Stock</th><th>Stock Mín.</th><th>Estado</th><th>Acciones</th>
+        </tr></thead>
+        <tbody id="tbody-inv"></tbody>
+      </table>
+    </div>
+    <div id="inv-empty" class="empty" style="display:none">
+      <div class="empty-icon">📦</div>
+      <h3>Sin artículos</h3><p>Agrega artículos al inventario o importa desde Excel</p>
+    </div>
+  </div>
+
+  <!-- PROVEEDORES -->
+  <div id="tab-proveedores" class="tab-pane">
+    <h2 class="section-title">Proveedores</h2>
+    <div class="toolbar">
+      <div class="search-box">
+        <span>🔍</span>
+        <input type="text" id="prov-search" placeholder="Buscar proveedor…" oninput="filtrarProveedores()">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalProveedor()">+ Nuevo Proveedor</button>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr>
+        <th>Empresa</th><th>Contacto</th><th>Teléfono</th><th>Correo</th><th>Departamento</th><th>Facturas</th><th>Acciones</th>
+      </tr></thead>
+      <tbody id="tbody-prov"></tbody></table>
+    </div>
+    <div id="prov-empty" class="empty" style="display:none">
+      <div class="empty-icon">🏭</div><h3>Sin proveedores</h3><p>Registra tus proveedores aquí</p>
+    </div>
+  </div>
+
+  <!-- FACTURAS / CUENTAS POR PAGAR -->
+  <div id="tab-facturas" class="tab-pane">
+    <h2 class="section-title">Cuentas por Pagar</h2>
+    <div id="fact-alerts" class="alerts-panel"></div>
+    <div class="toolbar">
+      <div class="search-box">
+        <span>🔍</span>
+        <input type="text" id="fact-search" placeholder="Buscar factura, proveedor…" oninput="filtrarFacturas()">
+      </div>
+      <select id="fact-estado" onchange="filtrarFacturas()">
+        <option value="">Todos los estados</option>
+        <option value="pendiente">Pendiente</option>
+        <option value="pagada">Pagada</option>
+        <option value="vencida">Vencida</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="exportarFacturasPDF()">📄 Exportar Facturas PDF</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalFactura()">+ Nueva Factura</button>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr>
+        <th>N° Factura</th><th>Proveedor</th><th>Monto</th><th>Emisión</th><th>Vencimiento</th><th>Días</th><th>Estado</th><th>Acciones</th>
+      </tr></thead>
+      <tbody id="tbody-fact"></tbody></table>
+    </div>
+    <div id="fact-empty" class="empty" style="display:none">
+      <div class="empty-icon">🧾</div><h3>Sin facturas</h3><p>Registra las facturas de tus proveedores</p>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- MODAL ARTÍCULO -->
+<div class="modal-overlay" id="modal-articulo">
+  <div class="modal">
+    <h3 class="modal-title" id="modal-art-title">Nuevo Artículo</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>Código *</label><input type="text" id="art-codigo" placeholder="FER-001"></div>
+      <div class="form-group"><label>Nombre *</label><input type="text" id="art-nombre" placeholder="Nombre del artículo"></div>
+      <div class="form-group"><label>Departamento *</label>
+        <select id="art-dept">
+          <option>Repuesto</option><option>Ferretería</option>
+          <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Precio de Costo (RD$) *</label><input type="number" id="art-precio-costo" min="0" step="0.01" placeholder="0.00"></div>
+      <div class="form-group"><label>Precio de Venta (RD$) *</label><input type="number" id="art-precio-venta" min="0" step="0.01" placeholder="0.00"></div>
+      <div class="form-group"><label>Stock Actual *</label><input type="number" id="art-stock" min="0" placeholder="0"></div>
+      <div class="form-group"><label>Stock Mínimo *</label><input type="number" id="art-min" min="0" placeholder="5"></div>
+      <div class="form-group span2"><label>Descripción</label><textarea id="art-desc" rows="2" style="resize:vertical"></textarea></div>
+      <div class="form-group"><label>Proveedor</label>
+        <select id="art-prov"><option value="">— Sin proveedor —</option></select>
+      </div>
+      <div class="form-group"><label>Unidad</label><input type="text" id="art-unidad" placeholder="unidad, caja, metro…"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-articulo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarArticulo()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PROVEEDOR -->
+<div class="modal-overlay" id="modal-proveedor">
+  <div class="modal">
+    <h3 class="modal-title" id="modal-prov-title">Nuevo Proveedor</h3>
+    <div class="form-grid">
+      <div class="form-group span2"><label>Empresa *</label><input type="text" id="prov-empresa" placeholder="Nombre de la empresa"></div>
+      <div class="form-group"><label>Contacto</label><input type="text" id="prov-contacto" placeholder="Nombre del contacto"></div>
+      <div class="form-group"><label>Teléfono</label><input type="text" id="prov-tel" placeholder="809-000-0000"></div>
+      <div class="form-group"><label>Correo</label><input type="email" id="prov-email" placeholder="correo@empresa.com"></div>
+      <div class="form-group"><label>Departamento</label>
+        <select id="prov-dept">
+          <option value="">General</option>
+          <option>Repuesto</option><option>Ferretería</option>
+          <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
+        </select>
+      </div>
+      <div class="form-group span2"><label>Dirección</label><input type="text" id="prov-dir" placeholder="Dirección"></div>
+      <div class="form-group"><label>RNC / Cédula</label><input type="text" id="prov-rnc"></div>
+      <div class="form-group"><label>Días de Crédito</label><input type="number" id="prov-credito" min="0" placeholder="30"></div>
+      <div class="form-group span2"><label>Notas</label><textarea id="prov-notas" rows="2" style="resize:vertical"></textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-proveedor')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarProveedor()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL FACTURA -->
+<div class="modal-overlay" id="modal-factura">
+  <div class="modal">
+    <h3 class="modal-title" id="modal-fact-title">Nueva Factura</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>N° Factura *</label><input type="text" id="fact-num" placeholder="FAC-001"></div>
+      <div class="form-group"><label>Proveedor *</label>
+        <select id="fact-prov-sel"><option value="">Seleccionar…</option></select>
+      </div>
+      <div class="form-group"><label>Monto (RD$) *</label><input type="number" id="fact-monto" min="0" step="0.01"></div>
+      <div class="form-group"><label>Estado</label>
+        <select id="fact-est-sel">
+          <option value="pendiente">Pendiente</option>
+          <option value="pagada">Pagada</option>
+          <option value="vencida">Vencida</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Fecha de Emisión *</label><input type="date" id="fact-emision"></div>
+      <div class="form-group"><label>Fecha de Vencimiento *</label><input type="date" id="fact-vence"></div>
+      <div class="form-group span2"><label>Descripción</label><textarea id="fact-desc" rows="2" style="resize:vertical"></textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-factura')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarFactura()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAR ELIMINAR -->
+<div class="modal-overlay" id="modal-confirm">
+  <div class="modal" style="max-width:420px">
+    <h3 class="modal-title">Confirmar Eliminación</h3>
+    <p style="color:var(--text2);font-size:15px" id="confirm-msg">¿Estás seguro que deseas eliminar este registro?</p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-confirm')">Cancelar</button>
+      <button class="btn btn-danger" id="confirm-ok-btn">🗑 Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CAMBIAR CONTRASEÑA -->
+<div class="modal-overlay" id="modal-cambiar-pass">
+  <div class="modal" style="max-width:420px">
+    <h3 class="modal-title">🔐 Cambiar Contraseña</h3>
+    <div class="form-grid full">
+      <div class="form-group"><label>Contraseña Actual</label><input type="password" id="pass-actual" placeholder="Ingresa la contraseña actual"></div>
+      <div class="form-group"><label>Nueva Contraseña</label><input type="password" id="pass-nueva" placeholder="Ingresa la nueva contraseña"></div>
+      <div class="form-group"><label>Confirmar Contraseña</label><input type="password" id="pass-confirma" placeholder="Confirma la nueva contraseña"></div>
+      <div id="pass-msg" style="font-size:13px;margin-top:8px;display:none"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-cambiar-pass')">Cancelar</button>
+      <button class="btn btn-primary" onclick="cambiarContrasena()">💾 Cambiar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────── DB ───────────
+let db;
+let editId = null;
+
+// ─────────── AUTENTICACIÓN ───────────
+let USER_PASS = localStorage.getItem('ferrepro_pass') || 'ferrepro2026';
+
+function cambiarContrasena() {
+  const pasActual = document.getElementById('pass-actual').value;
+  const pasNueva = document.getElementById('pass-nueva').value;
+  const pasConfirma = document.getElementById('pass-confirma').value;
+  const msg = document.getElementById('pass-msg');
+  
+  if (!pasActual || !pasNueva || !pasConfirma) {
+    msg.textContent = 'Todos los campos son requeridos';
+    msg.style.color = 'var(--red)';
+    msg.style.display = 'block';
+    return;
+  }
+  
+  if (pasActual !== USER_PASS) {
+    msg.textContent = 'La contraseña actual es incorrecta';
+    msg.style.color = 'var(--red)';
+    msg.style.display = 'block';
+    return;
+  }
+  
+  if (pasNueva !== pasConfirma) {
+    msg.textContent = 'Las nuevas contraseñas no coinciden';
+    msg.style.color = 'var(--red)';
+    msg.style.display = 'block';
+    return;
+  }
+  
+  if (pasNueva.length < 6) {
+    msg.textContent = 'La contraseña debe tener al menos 6 caracteres';
+    msg.style.color = 'var(--red)';
+    msg.style.display = 'block';
+    return;
+  }
+  
+  USER_PASS = pasNueva;
+  localStorage.setItem('ferrepro_pass', pasNueva);
+  msg.textContent = '✓ Contraseña actualizada correctamente';
+  msg.style.color = 'var(--green)';
+  msg.style.display = 'block';
+  
+  document.getElementById('pass-actual').value = '';
+  document.getElementById('pass-nueva').value = '';
+  document.getElementById('pass-confirma').value = '';
+  
+  setTimeout(() => {
+    cerrarModal('modal-cambiar-pass');
+    msg.style.display = 'none';
+    toast('Contraseña cambiadaexitosamente', 'success');
+  }, 1500);
+}
+
+function verificarSesion() {
+  const usuario = document.getElementById('login-user').value.trim();
+  const pass = document.getElementById('login-pass').value.trim();
+  const nota = document.getElementById('login-note');
+  
+  if (!usuario || !pass) {
+    nota.textContent = 'Usuario y contraseña son requeridos';
+    nota.style.display = 'block';
+    return;
+  }
+  
+  if (usuario !== 'admin' || pass !== USER_PASS) {
+    nota.textContent = 'Usuario o contraseña incorrectos';
+    nota.style.display = 'block';
+    return;
+  }
+  
+  localStorage.setItem('ferrepro_autenticado', 'true');
+  document.getElementById('login-screen').style.display = 'none';
+  initDB();
+}
+
+function cerrarSesion() {
+  localStorage.removeItem('ferrepro_autenticado');
+  document.location.reload();
+}
+
+function checkAuth() {
+  if (localStorage.getItem('ferrepro_autenticado') !== 'true') {
+    document.getElementById('login-screen').style.display = 'flex';
+    document.getElementById('topbar').style.display = 'none';
+    document.getElementById('tabs').style.display = 'none';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('loading').style.display = 'none';
+    return false;
+  }
+  return true;
+}
+
+async function initDB() {
+  const SQL = await initSqlJs({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${f}` });
+  const saved = localStorage.getItem('ferrepro_db');
+  if (saved) {
+    const arr = Uint8Array.from(atob(saved), c => c.charCodeAt(0));
+    db = new SQL.Database(arr);
+  } else {
+    db = new SQL.Database();
+  }
+  createTables();
+  saveDB();
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('topbar').style.display = 'flex';
+  document.getElementById('tabs').style.display = 'flex';
+  document.getElementById('app').style.display = 'block';
+  renderDashboard();
+  renderInventario();
+  renderProveedores();
+  renderFacturas();
+  checkAlertas();
+}
+
+function createTables() {
+  db.run(`CREATE TABLE IF NOT EXISTS articulos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    codigo TEXT UNIQUE, nombre TEXT, departamento TEXT,
+    precio_costo REAL, precio_venta REAL, stock INTEGER, stock_min INTEGER,
+    descripcion TEXT, proveedor_id INTEGER, unidad TEXT
+  )`);
+  try { db.run('ALTER TABLE articulos ADD COLUMN precio_costo REAL DEFAULT 0'); } catch(e) {}
+  try { db.run('ALTER TABLE articulos ADD COLUMN precio_venta REAL DEFAULT 0'); } catch(e) {}
+  db.run(`CREATE TABLE IF NOT EXISTS proveedores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    empresa TEXT, contacto TEXT, telefono TEXT, email TEXT,
+    departamento TEXT, direccion TEXT, rnc TEXT, dias_credito INTEGER, notas TEXT
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS facturas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    numero TEXT, proveedor_id INTEGER, monto REAL,
+    fecha_emision TEXT, fecha_vencimiento TEXT, estado TEXT, descripcion TEXT
+  )`);
+}
+
+function saveDB() {
+  const data = db.export();
+  const b64 = btoa(String.fromCharCode(...data));
+  localStorage.setItem('ferrepro_db', b64);
+  // Backup automático con timestamp
+  const backups = JSON.parse(localStorage.getItem('ferrepro_backups') || '[]');
+  backups.unshift({
+    timestamp: new Date().toISOString(),
+    size: b64.length
+  });
+  // Mantener solo los últimos 10 backups
+  if (backups.length > 10) backups.pop();
+  localStorage.setItem('ferrepro_backups', JSON.stringify(backups));
+}
+
+function query(sql, params=[]) {
+  try {
+    const res = db.exec(sql, params);
+    if (!res.length) return [];
+    return res[0].values.map(row => {
+      const obj = {};
+      res[0].columns.forEach((c, i) => obj[c] = row[i]);
+      return obj;
+    });
+  } catch(e) { console.error(e); return []; }
+}
+
+// ─────────── TABS ───────────
+function switchTab(name, evt) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (evt && evt.currentTarget) evt.currentTarget.classList.add('active');
+  if (name === 'dashboard') renderDashboard();
+  if (name === 'facturas') renderFacturas();
+}
+
+// ─────────── TOAST ───────────
+function toast(msg, type='success') {
+  const el = document.createElement('div');
+  el.className = `toast-msg ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ─────────── MODAL ───────────
+function cerrarModal(id) { document.getElementById(id).classList.remove('open'); editId = null; }
+function abrirModal(id) { document.getElementById(id).classList.add('open'); }
+
+// ─────────── HELPERS ───────────
+function fmt(n) { return new Intl.NumberFormat('es-DO', {style:'currency', currency:'DOP', minimumFractionDigits:2}).format(n||0); }
+function diffDias(fechaStr) {
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const d = new Date(fechaStr + 'T00:00:00');
+  return Math.round((d - hoy) / 86400000);
+}
+
+function estadoBadge(estado) {
+  const m = {pendiente:'badge-warn',pagada:'badge-ok',vencida:'badge-venc'};
+  const l = {pendiente:'Pendiente',pagada:'Pagada',vencida:'Vencida'};
+  return `<span class="badge ${m[estado]||'badge-warn'}">${l[estado]||estado}</span>`;
+}
+
+// ─────────── DASHBOARD ───────────
+function renderDashboard() {
+  const arts = query('SELECT * FROM articulos');
+  const provs = query('SELECT * FROM proveedores');
+  const facts = query("SELECT * FROM facturas WHERE estado='pendiente'");
+  const bajos = arts.filter(a => a.stock <= a.stock_min);
+  const totalCosto = arts.reduce((s, a) => s + ((a.precio_costo||0) * a.stock), 0);
+  const totalVenta = arts.reduce((s, a) => s + ((a.precio_venta||0) * a.stock), 0);
+  const margen = totalVenta - totalCosto;
+  const pctMargen = totalCosto > 0 ? ((margen / totalCosto) * 100).toFixed(1) : 0;
+
+  document.getElementById('dash-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Artículos</div><div class="stat-val">${arts.length}</div></div>
+    <div class="stat-card green"><div class="stat-label">Costo Total</div><div class="stat-val">${fmt(totalCosto)}</div></div>
+    <div class="stat-card amber"><div class="stat-label">Valor Venta</div><div class="stat-val">${fmt(totalVenta)}</div></div>
+    <div class="stat-card" style="background:var(--blue-bg);border-color:#a8c8f0"><div class="stat-label">Margen Bruto</div><div class="stat-val" style="color:var(--blue)">${fmt(margen)} (${pctMargen}%)</div></div>
+    <div class="stat-card accent"><div class="stat-label">Proveedores</div><div class="stat-val">${provs.length}</div></div>
+    <div class="stat-card red"><div class="stat-label">Facturas Pend.</div><div class="stat-val">${facts.length}</div></div>
+  `;
+
+  // Chart dept
+  const depts = ['Repuesto','Ferretería','Plomería','Electricidad','Hogar'];
+  const max = Math.max(1, ...depts.map(d => arts.filter(a => a.departamento===d).length));
+  const colors = {'Repuesto':'#7F77DD','Ferretería':'#378ADD','Plomería':'#1D9E75','Electricidad':'#EF9F27','Hogar':'#E24B4A'};
+  document.getElementById('dept-chart').innerHTML = depts.map(d => {
+    const cnt = arts.filter(a => a.departamento===d).length;
+    return `<div class="mini-bar-row">
+      <span class="mini-bar-label">${d}</span>
+      <div class="mini-bar-track"><div class="mini-bar-fill" style="width:${Math.round(cnt/max*100)}%;background:${colors[d]}"></div></div>
+      <span class="mini-bar-count">${cnt}</span>
+    </div>`;
+  }).join('');
+
+  // Próximos vencimientos
+  const proxFacts = query("SELECT f.*, p.empresa FROM facturas f LEFT JOIN proveedores p ON f.proveedor_id=p.id WHERE f.estado='pendiente' ORDER BY f.fecha_vencimiento ASC LIMIT 6");
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  if (!proxFacts.length) {
+    document.getElementById('prox-venc-list').innerHTML = '<div class="empty" style="padding:1.5rem"><p>Sin facturas pendientes</p></div>';
+  } else {
+    document.getElementById('prox-venc-list').innerHTML = proxFacts.map(f => {
+      const dias = diffDias(f.fecha_vencimiento);
+      const cls = dias < 0 ? 'danger' : dias <= 7 ? 'warning' : 'info';
+      const tag = dias < 0 ? `Vencida hace ${Math.abs(dias)}d` : dias === 0 ? 'Vence hoy' : `${dias}d restantes`;
+      return `<div class="alert-item ${cls}" style="margin-bottom:6px">
+        <div class="alert-text"><strong>${f.numero} — ${f.empresa||'Sin proveedor'}</strong>
+        <span>${fmt(f.monto)} · ${tag}</span></div>
+      </div>`;
+    }).join('');
+  }
+
+  // Alertas
+  checkAlertas();
+}
+
+function checkAlertas() {
+  const facts = query("SELECT f.*, p.empresa FROM facturas f LEFT JOIN proveedores p ON f.proveedor_id=p.id WHERE f.estado='pendiente'");
+  const bajos = query('SELECT * FROM articulos WHERE stock <= stock_min');
+  let html = '';
+  facts.forEach(f => {
+    const dias = diffDias(f.fecha_vencimiento);
+    if (dias <= 7 && dias >= 0) {
+      html += `<div class="alert-item warning"><span class="alert-icon">⚠️</span><div class="alert-text">
+        <strong>Factura próxima a vencer: ${f.numero}</strong>
+        <span>Proveedor: ${f.empresa||'N/D'} — Vence en ${dias} día${dias!==1?'s':''} · ${fmt(f.monto)}</span>
+      </div></div>`;
+    } else if (dias < 0) {
+      html += `<div class="alert-item danger"><span class="alert-icon">🚨</span><div class="alert-text">
+        <strong>Factura VENCIDA: ${f.numero}</strong>
+        <span>Proveedor: ${f.empresa||'N/D'} — Vencida hace ${Math.abs(dias)} días · ${fmt(f.monto)}</span>
+      </div></div>`;
+    }
+  });
+  if (bajos.length) {
+    html += `<div class="alert-item warning"><span class="alert-icon">📦</span><div class="alert-text">
+      <strong>${bajos.length} artículo${bajos.length!==1?'s':''} con stock bajo</strong>
+      <span>${bajos.slice(0,3).map(a=>a.nombre).join(', ')}${bajos.length>3?' y más…':''}</span>
+    </div></div>`;
+  }
+  const el = document.getElementById('dash-alerts');
+  if (el) el.innerHTML = html;
+  const fel = document.getElementById('fact-alerts');
+  if (fel) {
+    const factHtml = facts.filter(f => diffDias(f.fecha_vencimiento) <= 7).map(f => {
+      const d = diffDias(f.fecha_vencimiento);
+      const cls = d < 0 ? 'danger' : 'warning';
+      const tag = d < 0 ? `Vencida hace ${Math.abs(d)} días` : d === 0 ? 'Vence hoy' : `Vence en ${d} días`;
+      return `<div class="alert-item ${cls}"><span class="alert-icon">${d<0?'🚨':'⚠️'}</span><div class="alert-text">
+        <strong>${f.numero} — ${f.empresa||'Sin proveedor'}</strong>
+        <span>${tag} · ${fmt(f.monto)}</span></div></div>`;
+    }).join('');
+    fel.innerHTML = factHtml;
+  }
+}
+
+// ─────────── INVENTARIO ───────────
+let invFiltrados = [];
+
+function renderInventario(lista) {
+  const arts = lista || query('SELECT a.*, p.empresa as prov_nombre FROM articulos a LEFT JOIN proveedores p ON a.proveedor_id=p.id ORDER BY a.nombre');
+  invFiltrados = arts;
+  const tbody = document.getElementById('tbody-inv');
+  const empty = document.getElementById('inv-empty');
+  if (!arts.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  tbody.innerHTML = arts.map(a => {
+    const bajo = a.stock <= a.stock_min;
+    const estadoHTML = bajo
+      ? `<span class="badge badge-low">⚠️ Bajo</span>`
+      : `<span class="badge badge-ok">✓ OK</span>`;
+    return `<tr>
+      <td><code style="font-size:12px">${a.codigo||''}</code></td>
+      <td><strong>${a.nombre}</strong>${a.descripcion?`<br><span style="font-size:12px;color:var(--text3)">${a.descripcion}</span>`:''}</td>
+      <td><span class="badge dept-${a.departamento||'Ferretería'}">${a.departamento||''}</span></td>
+      <td>${fmt(a.precio_costo||0)}</td>
+      <td>${fmt((a.precio_costo||0) * a.stock)}</td>
+      <td>${fmt(a.precio_venta||0)}</td>
+      <td>${fmt((a.precio_venta||0) * a.stock)}</td>
+      <td style="font-weight:600;color:${bajo?'var(--red)':'inherit'}">${a.stock} ${a.unidad||'u.'}</td>
+      <td style="color:var(--text3)">${a.stock_min}</td>
+      <td>${estadoHTML}</td>
+      <td><div class="actions-cell">
+        <button class="btn btn-secondary btn-sm" onclick="editarArticulo(${a.id})">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmEliminar('articulo',${a.id})">🗑</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function filtrarInventario() {
+  const q = document.getElementById('inv-search').value.toLowerCase();
+  const dept = document.getElementById('inv-dept').value;
+  const stock = document.getElementById('inv-stock').value;
+  let arts = query('SELECT a.*, p.empresa as prov_nombre FROM articulos a LEFT JOIN proveedores p ON a.proveedor_id=p.id ORDER BY a.nombre');
+  if (q) arts = arts.filter(a => (a.nombre||'').toLowerCase().includes(q) || (a.codigo||'').toLowerCase().includes(q));
+  if (dept) arts = arts.filter(a => a.departamento === dept);
+  if (stock === 'bajo') arts = arts.filter(a => a.stock <= a.stock_min);
+  if (stock === 'ok') arts = arts.filter(a => a.stock > a.stock_min);
+  renderInventario(arts);
+}
+
+function abrirModalArticulo(id) {
+  editId = id || null;
+  document.getElementById('modal-art-title').textContent = id ? 'Editar Artículo' : 'Nuevo Artículo';
+  const provs = query('SELECT id, empresa FROM proveedores ORDER BY empresa');
+  const sel = document.getElementById('art-prov');
+  sel.innerHTML = '<option value="">— Sin proveedor —</option>' + provs.map(p => `<option value="${p.id}">${p.empresa}</option>`).join('');
+    if (id) {
+    const a = query('SELECT * FROM articulos WHERE id=?', [id])[0];
+    if (a) {
+      document.getElementById('art-codigo').value = a.codigo||'';
+      document.getElementById('art-nombre').value = a.nombre||'';
+      document.getElementById('art-dept').value = a.departamento||'Ferretería';
+        document.getElementById('art-precio-costo').value = a.precio_costo||0;
+        document.getElementById('art-precio-venta').value = a.precio_venta||0;
+      document.getElementById('art-stock').value = a.stock||0;
+      document.getElementById('art-min').value = a.stock_min||0;
+      document.getElementById('art-desc').value = a.descripcion||'';
+      document.getElementById('art-prov').value = a.proveedor_id||'';
+      document.getElementById('art-unidad').value = a.unidad||'';
+    }
+  } else {
+    ['art-codigo','art-nombre','art-precio-costo','art-precio-venta','art-stock','art-min','art-desc','art-unidad'].forEach(id => document.getElementById(id).value='');
+    document.getElementById('art-dept').value='Ferretería';
+    document.getElementById('art-prov').value='';
+  }
+  abrirModal('modal-articulo');
+}
+
+function editarArticulo(id) { abrirModalArticulo(id); }
+
+function guardarArticulo() {
+  const codigo = document.getElementById('art-codigo').value.trim();
+  const nombre = document.getElementById('art-nombre').value.trim();
+  const dept = document.getElementById('art-dept').value;
+  const precio_costo = parseFloat(document.getElementById('art-precio-costo').value)||0;
+  const precio_venta = parseFloat(document.getElementById('art-precio-venta').value)||0;
+  const stock = parseInt(document.getElementById('art-stock').value)||0;
+  const min = parseInt(document.getElementById('art-min').value)||0;
+  const desc = document.getElementById('art-desc').value.trim();
+  const provId = document.getElementById('art-prov').value||null;
+  const unidad = document.getElementById('art-unidad').value.trim();
+  if (!nombre) { toast('El nombre es requerido','error'); return; }
+  try {
+    if (editId) {
+      db.run('UPDATE articulos SET codigo=?,nombre=?,departamento=?,precio_costo=?,precio_venta=?,stock=?,stock_min=?,descripcion=?,proveedor_id=?,unidad=? WHERE id=?',
+        [codigo,nombre,dept,precio_costo,precio_venta,stock,min,desc,provId,unidad,editId]);
+      toast('Artículo actualizado');
+    } else {
+      db.run('INSERT INTO articulos(codigo,nombre,departamento,precio_costo,precio_venta,stock,stock_min,descripcion,proveedor_id,unidad) VALUES(?,?,?,?,?,?,?,?,?,?)',
+        [codigo,nombre,dept,precio_costo,precio_venta,stock,min,desc,provId,unidad]);
+      toast('Artículo agregado');
+    }
+    saveDB(); cerrarModal('modal-articulo'); renderInventario(); renderDashboard();
+  } catch(e) { toast(e.message.includes('UNIQUE') ? 'El código ya existe' : 'Error al guardar','error'); }
+}
+
+// ─────────── PROVEEDORES ───────────
+function renderProveedores(lista) {
+  const provs = lista || query('SELECT p.*, (SELECT COUNT(*) FROM facturas f WHERE f.proveedor_id=p.id) as num_fact FROM proveedores p ORDER BY p.empresa');
+  const tbody = document.getElementById('tbody-prov');
+  const empty = document.getElementById('prov-empty');
+  if (!provs.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  tbody.innerHTML = provs.map(p => `<tr>
+    <td><strong>${p.empresa}</strong>${p.rnc?`<br><span style="font-size:12px;color:var(--text3)">RNC: ${p.rnc}</span>`:''}</td>
+    <td>${p.contacto||'—'}</td>
+    <td>${p.telefono||'—'}</td>
+    <td>${p.email?`<a href="mailto:${p.email}" style="color:var(--blue)">${p.email}</a>`:'—'}</td>
+    <td>${p.departamento?`<span class="badge dept-${p.departamento}">${p.departamento}</span>`:'—'}</td>
+    <td><span class="badge badge-ok">${p.num_fact||0} factura${p.num_fact!==1?'s':''}</span></td>
+    <td><div class="actions-cell">
+      <button class="btn btn-secondary btn-sm" onclick="editarProveedor(${p.id})">✏️</button>
+      <button class="btn btn-danger btn-sm" onclick="confirmEliminar('proveedor',${p.id})">🗑</button>
+    </div></td>
+  </tr>`).join('');
+}
+
+function filtrarProveedores() {
+  const q = document.getElementById('prov-search').value.toLowerCase();
+  let provs = query('SELECT p.*, (SELECT COUNT(*) FROM facturas f WHERE f.proveedor_id=p.id) as num_fact FROM proveedores p ORDER BY p.empresa');
+  if (q) provs = provs.filter(p => (p.empresa||'').toLowerCase().includes(q) || (p.contacto||'').toLowerCase().includes(q));
+  renderProveedores(provs);
+}
+
+function abrirModalProveedor(id) {
+  editId = id || null;
+  document.getElementById('modal-prov-title').textContent = id ? 'Editar Proveedor' : 'Nuevo Proveedor';
+  if (id) {
+    const p = query('SELECT * FROM proveedores WHERE id=?', [id])[0];
+    if (p) {
+      document.getElementById('prov-empresa').value = p.empresa||'';
+      document.getElementById('prov-contacto').value = p.contacto||'';
+      document.getElementById('prov-tel').value = p.telefono||'';
+      document.getElementById('prov-email').value = p.email||'';
+      document.getElementById('prov-dept').value = p.departamento||'';
+      document.getElementById('prov-dir').value = p.direccion||'';
+      document.getElementById('prov-rnc').value = p.rnc||'';
+      document.getElementById('prov-credito').value = p.dias_credito||30;
+      document.getElementById('prov-notas').value = p.notas||'';
+    }
+  } else {
+    ['prov-empresa','prov-contacto','prov-tel','prov-email','prov-dir','prov-rnc','prov-notas'].forEach(i => document.getElementById(i).value='');
+    document.getElementById('prov-dept').value='';
+    document.getElementById('prov-credito').value=30;
+  }
+  abrirModal('modal-proveedor');
+}
+
+function editarProveedor(id) { abrirModalProveedor(id); }
+
+function guardarProveedor() {
+  const empresa = document.getElementById('prov-empresa').value.trim();
+  if (!empresa) { toast('El nombre de la empresa es requerido','error'); return; }
+  const vals = [empresa, document.getElementById('prov-contacto').value.trim(),
+    document.getElementById('prov-tel').value.trim(), document.getElementById('prov-email').value.trim(),
+    document.getElementById('prov-dept').value, document.getElementById('prov-dir').value.trim(),
+    document.getElementById('prov-rnc').value.trim(),
+    parseInt(document.getElementById('prov-credito').value)||30,
+    document.getElementById('prov-notas').value.trim()];
+  if (editId) {
+    db.run('UPDATE proveedores SET empresa=?,contacto=?,telefono=?,email=?,departamento=?,direccion=?,rnc=?,dias_credito=?,notas=? WHERE id=?', [...vals, editId]);
+    toast('Proveedor actualizado');
+  } else {
+    db.run('INSERT INTO proveedores(empresa,contacto,telefono,email,departamento,direccion,rnc,dias_credito,notas) VALUES(?,?,?,?,?,?,?,?,?)', vals);
+    toast('Proveedor agregado');
+  }
+  saveDB(); cerrarModal('modal-proveedor'); renderProveedores(); renderDashboard();
+}
+
+// ─────────── FACTURAS ───────────
+function renderFacturas(lista) {
+  const facts = lista || query("SELECT f.*, p.empresa FROM facturas f LEFT JOIN proveedores p ON f.proveedor_id=p.id ORDER BY f.fecha_vencimiento ASC");
+  const tbody = document.getElementById('tbody-fact');
+  const empty = document.getElementById('fact-empty');
+  if (!facts.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  tbody.innerHTML = facts.map(f => {
+    const dias = diffDias(f.fecha_vencimiento);
+    let diasHTML;
+    if (f.estado === 'pagada') diasHTML = '<span class="badge badge-ok">Pagada</span>';
+    else if (dias < 0) diasHTML = `<span class="badge badge-venc">${Math.abs(dias)}d vencida</span>`;
+    else if (dias <= 7) diasHTML = `<span class="badge badge-warn">⚠️ ${dias}d</span>`;
+    else diasHTML = `<span style="color:var(--text2)">${dias}d</span>`;
+    return `<tr>
+      <td><strong>${f.numero}</strong></td>
+      <td>${f.empresa||'—'}</td>
+      <td style="font-weight:600">${fmt(f.monto)}</td>
+      <td>${f.fecha_emision||'—'}</td>
+      <td>${f.fecha_vencimiento||'—'}</td>
+      <td>${diasHTML}</td>
+      <td>${estadoBadge(f.estado)}</td>
+      <td><div class="actions-cell">
+        ${f.estado!=='pagada'?`<button class="btn btn-green btn-sm" onclick="marcarPagada(${f.id})">✓ Pagar</button>`:''}
+        <button class="btn btn-secondary btn-sm" onclick="editarFactura(${f.id})">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmEliminar('factura',${f.id})">🗑</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+  checkAlertas();
+}
+
+function filtrarFacturas() {
+  const q = document.getElementById('fact-search').value.toLowerCase();
+  const est = document.getElementById('fact-estado').value;
+  let facts = query("SELECT f.*, p.empresa FROM facturas f LEFT JOIN proveedores p ON f.proveedor_id=p.id ORDER BY f.fecha_vencimiento ASC");
+  if (q) facts = facts.filter(f => (f.numero||'').toLowerCase().includes(q) || (f.empresa||'').toLowerCase().includes(q));
+  if (est) facts = facts.filter(f => f.estado === est);
+  renderFacturas(facts);
+}
+
+function abrirModalFactura(id) {
+  editId = id || null;
+  document.getElementById('modal-fact-title').textContent = id ? 'Editar Factura' : 'Nueva Factura';
+  const provs = query('SELECT id, empresa FROM proveedores ORDER BY empresa');
+  const sel = document.getElementById('fact-prov-sel');
+  sel.innerHTML = '<option value="">Seleccionar…</option>' + provs.map(p => `<option value="${p.id}">${p.empresa}</option>`).join('');
+  if (id) {
+    const f = query('SELECT * FROM facturas WHERE id=?', [id])[0];
+    if (f) {
+      document.getElementById('fact-num').value = f.numero||'';
+      document.getElementById('fact-prov-sel').value = f.proveedor_id||'';
+      document.getElementById('fact-monto').value = f.monto||0;
+      document.getElementById('fact-est-sel').value = f.estado||'pendiente';
+      document.getElementById('fact-emision').value = f.fecha_emision||'';
+      document.getElementById('fact-vence').value = f.fecha_vencimiento||'';
+      document.getElementById('fact-desc').value = f.descripcion||'';
+    }
+  } else {
+    ['fact-num','fact-monto','fact-desc'].forEach(i => document.getElementById(i).value='');
+    document.getElementById('fact-est-sel').value='pendiente';
+    const hoy = new Date().toISOString().split('T')[0];
+    document.getElementById('fact-emision').value = hoy;
+    const vence = new Date(); vence.setDate(vence.getDate()+30);
+    document.getElementById('fact-vence').value = vence.toISOString().split('T')[0];
+  }
+  abrirModal('modal-factura');
+}
+
+function editarFactura(id) { abrirModalFactura(id); }
+
+function guardarFactura() {
+  const num = document.getElementById('fact-num').value.trim();
+  const provId = document.getElementById('fact-prov-sel').value||null;
+  const monto = parseFloat(document.getElementById('fact-monto').value)||0;
+  const est = document.getElementById('fact-est-sel').value;
+  const emision = document.getElementById('fact-emision').value;
+  const vence = document.getElementById('fact-vence').value;
+  const desc = document.getElementById('fact-desc').value.trim();
+  if (!num || !emision || !vence) { toast('Número, emisión y vencimiento son requeridos','error'); return; }
+  if (editId) {
+    db.run('UPDATE facturas SET numero=?,proveedor_id=?,monto=?,fecha_emision=?,fecha_vencimiento=?,estado=?,descripcion=? WHERE id=?',
+      [num,provId,monto,emision,vence,est,desc,editId]);
+    toast('Factura actualizada');
+  } else {
+    db.run('INSERT INTO facturas(numero,proveedor_id,monto,fecha_emision,fecha_vencimiento,estado,descripcion) VALUES(?,?,?,?,?,?,?)',
+      [num,provId,monto,emision,vence,est,desc]);
+    toast('Factura registrada');
+  }
+  saveDB(); cerrarModal('modal-factura'); renderFacturas(); renderDashboard();
+}
+
+function marcarPagada(id) {
+  db.run("UPDATE facturas SET estado='pagada' WHERE id=?", [id]);
+  saveDB(); renderFacturas(); renderDashboard(); toast('Factura marcada como pagada','success');
+}
+
+// ─────────── ELIMINAR ───────────
+function confirmEliminar(tipo, id) {
+  const msgs = {articulo:'¿Eliminar este artículo del inventario?',proveedor:'¿Eliminar este proveedor? Sus facturas quedarán sin proveedor asignado.',factura:'¿Eliminar esta factura?'};
+  document.getElementById('confirm-msg').textContent = msgs[tipo];
+  document.getElementById('confirm-ok-btn').onclick = () => {
+    const tablas = {articulo:'articulos',proveedor:'proveedores',factura:'facturas'};
+    db.run(`DELETE FROM ${tablas[tipo]} WHERE id=?`, [id]);
+    saveDB(); cerrarModal('modal-confirm');
+    if (tipo==='articulo') { renderInventario(); renderDashboard(); }
+    if (tipo==='proveedor') { renderProveedores(); renderDashboard(); }
+    if (tipo==='factura') { renderFacturas(); renderDashboard(); }
+    toast('Eliminado correctamente');
+  };
+  abrirModal('modal-confirm');
+}
+
+// ─────────── IMPORTAR EXCEL ───────────
+function importarExcel(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, {type:'binary'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws);
+      let ok=0, err=0;
+      rows.forEach(r => {
+        const codigo = String(r['Código']||r['Codigo']||r['codigo']||'').trim();
+        const nombre = String(r['Nombre']||r['nombre']||'').trim();
+        const dept = String(r['Departamento']||r['departamento']||'Ferretería').trim();
+        const precio_costo = parseFloat(r['Precio de Costo']||r['PrecioCosto']||r['precio_costo']||r['precio']||0);
+        const precio_venta = parseFloat(r['Precio de Venta']||r['PrecioVenta']||r['precio_venta']||0);
+        const stock = parseInt(r['Stock']||r['stock']||0);
+        const min = parseInt(r['Stock Mínimo']||r['Stock Minimo']||r['stock_min']||5);
+        const desc = String(r['Descripción']||r['Descripcion']||r['descripcion']||'').trim();
+        const unidad = String(r['Unidad']||r['unidad']||'u.').trim();
+        if (!nombre) { err++; return; }
+        try {
+          if (codigo) {
+            const ex = query('SELECT id FROM articulos WHERE codigo=?', [codigo]);
+            if (ex.length) {
+              db.run('UPDATE articulos SET nombre=?,departamento=?,precio_costo=?,precio_venta=?,stock=?,stock_min=?,descripcion=?,unidad=? WHERE codigo=?',
+                [nombre,dept,precio_costo,precio_venta,stock,min,desc,unidad,codigo]);
+            } else {
+              db.run('INSERT INTO articulos(codigo,nombre,departamento,precio_costo,precio_venta,stock,stock_min,descripcion,unidad) VALUES(?,?,?,?,?,?,?,?,?)',
+                [codigo,nombre,dept,precio_costo,precio_venta,stock,min,desc,unidad]);
+            }
+          } else {
+            db.run('INSERT INTO articulos(nombre,departamento,precio_costo,precio_venta,stock,stock_min,descripcion,unidad) VALUES(?,?,?,?,?,?,?,?)',
+              [nombre,dept,precio_costo,precio_venta,stock,min,desc,unidad]);
+          }
+          ok++;
+        } catch(ex) { err++; }
+      });
+      saveDB(); renderInventario(); renderDashboard();
+      toast(`Importados: ${ok} artículos${err?' · Errores: '+err:''}`, ok>0?'success':'error');
+    } catch(e) { toast('Error al leer el archivo Excel','error'); }
+    input.value='';
+  };
+  reader.readAsBinaryString(file);
+}
+
+// ─────────── EXPORTAR EXCEL ───────────
+function exportarExcel() {
+  const arts = query('SELECT a.codigo, a.nombre, a.departamento, a.precio_costo, a.precio_venta, a.stock, a.stock_min, a.unidad, a.descripcion, p.empresa as proveedor FROM articulos a LEFT JOIN proveedores p ON a.proveedor_id=p.id ORDER BY a.nombre');
+  if (!arts.length) { toast('No hay artículos para exportar','error'); return; }
+  const data = arts.map(a => ({
+    'Código': a.codigo||'',
+    'Nombre': a.nombre,
+    'Departamento': a.departamento,
+    'Precio de Costo': a.precio_costo||0,
+    'Precio de Venta': a.precio_venta||0,
+    'Stock': a.stock,
+    'Stock Mínimo': a.stock_min,
+    'Unidad': a.unidad||'u.',
+    'Descripción': a.descripcion||'',
+    'Proveedor': a.proveedor||''
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
+  XLSX.writeFile(wb, `inventario_ferrepro_${new Date().toISOString().split('T')[0]}.xlsx`);
+  toast('Inventario exportado a Excel','success');
+}
+
+// ─────────── PLANTILLA EXCEL ───────────
+function descargarPlantilla() {
+  const data = [
+    {'Código':'FER-001','Nombre':'Ejemplo Tornillo 1/4"','Departamento':'Ferretería','Precio de Costo':2.00,'Precio de Venta':5.00,'Stock':100,'Stock Mínimo':20,'Unidad':'caja','Descripción':'Tornillo cabeza plana'},
+    {'Código':'PLO-001','Nombre':'Tubo PVC 1/2"','Departamento':'Plomería','Precio de Costo':35.00,'Precio de Venta':85.00,'Stock':50,'Stock Mínimo':10,'Unidad':'metro','Descripción':''},
+  ];
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Plantilla');
+  XLSX.writeFile(wb, 'plantilla_inventario_ferrepro.xlsx');
+  toast('Plantilla descargada','info');
+}
+
+// ─────────── PDF STOCK BAJO ───────────
+function exportarStockBajoPDF() {
+  const bajos = query('SELECT a.*, p.empresa as proveedor FROM articulos a LEFT JOIN proveedores p ON a.proveedor_id=p.id WHERE a.stock <= a.stock_min ORDER BY a.departamento, a.nombre');
+  if (!bajos.length) { toast('No hay artículos con stock bajo 🎉','info'); return; }
+  
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const fecha = new Date().toLocaleDateString('es-DO');
+  const depts = ['Repuesto','Ferretería','Plomería','Electricidad','Hogar'];
+  let y = 20;
+  
+  // Título principal
+  doc.setFontSize(18);
+  doc.setFont('helvetica','bold');
+  doc.text('FerrePro — Lista de Compras', 14, y);
+  y += 10;
+  
+  doc.setFontSize(11);
+  doc.setFont('helvetica','normal');
+  doc.setTextColor(100);
+  doc.text(`Generado: ${fecha}`, 14, y);
+  y += 8;
+  
+  // Procesar por departamento
+  depts.forEach(dept => {
+    const deptItems = bajos.filter(a => a.departamento === dept);
+    if (!deptItems.length) return;
+    
+    // Verificar si hay espacio para nueva sección
+    if (y > 250) {
+      doc.addPage();
+      y = 20;
+    }
+    
+    doc.setTextColor(0);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(12);
+    doc.text(`📦 ${dept}`, 14, y);
+    y += 6;
+    
+    // Tabla para este departamento
+    const cols = ['Código','Nombre','Stock Act.','Stock Mín.','Necesitar','Costo Unit.','Total Costo'];
+    const rows = deptItems.map(a => {
+      const falta = Math.max(0, a.stock_min - a.stock + a.stock_min);
+      const costoUnit = a.precio_costo||0;
+      return [
+        a.codigo||'',
+        a.nombre,
+        `${a.stock} ${a.unidad||'u.'}`,
+        a.stock_min,
+        falta,
+        fmt(costoUnit),
+        fmt(costoUnit * falta)
+      ];
+    });
+    
+    doc.autoTable({
+      head: [cols],
+      body: rows,
+      startY: y,
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [196, 57, 10], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [250, 248, 244] },
+      columnStyles: { 1: { cellWidth: 35 } }
+    });
+    
+    y = doc.lastAutoTable.finalY + 6;
+    
+    // Subtotal por departamento
+    const totalDept = deptItems.reduce((s, a) => s + ((a.precio_costo||0) * Math.max(0, a.stock_min - a.stock + a.stock_min)), 0);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(9);
+    doc.text(`Subtotal ${dept}: ${fmt(totalDept)}`, 14, y);
+    y += 6;
+  });
+  
+  // Resumen final
+  if (y > 270) doc.addPage();
+  
+  const totalCosto = bajos.reduce((s, a) => s + ((a.precio_costo||0) * Math.max(0, a.stock_min - a.stock + a.stock_min)), 0);
+  const totalVenta = bajos.reduce((s, a) => s + ((a.precio_venta||0) * Math.max(0, a.stock_min - a.stock + a.stock_min)), 0);
+  
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(12);
+  doc.text(`Resumen Total`, 14, y);
+  y += 8;
+  
+  doc.setFontSize(10);
+  doc.text(`Total costo estimado: ${fmt(totalCosto)}`, 14, y);
+  y += 6;
+  doc.text(`Total venta estimado: ${fmt(totalVenta)}`, 14, y);
+  y += 6;
+  doc.text(`Cantidad de artículos: ${bajos.length}`, 14, y);
+  
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(8);
+  doc.setTextColor(150);
+  doc.text('FerrePro · Sistema de Inventario', 14, 285);
+  doc.save(`stock_bajo_${new Date().toISOString().split('T')[0]}.pdf`);
+  toast(`PDF generado: ${bajos.length} artículos organizados por departamentos`,'success');
+}
+
+
+// ─────────── EXPORTAR FACTURAS A PDF ───────────
+function exportarFacturasPDF() {
+  const facts = query("SELECT f.numero, p.empresa, f.monto, f.fecha_emision, f.fecha_vencimiento, f.estado, f.descripcion FROM facturas f LEFT JOIN proveedores p ON f.proveedor_id=p.id ORDER BY f.fecha_vencimiento ASC");
+  if (!facts.length) { toast('No hay facturas para exportar','error'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const fecha = new Date().toLocaleDateString('es-DO');
+  doc.setFontSize(18);
+  doc.setFont('helvetica','bold');
+  doc.text('FerrePro — Facturas por Pagar', 14, 20);
+  doc.setFontSize(11);
+  doc.setFont('helvetica','normal');
+  doc.setTextColor(100);
+  doc.text(`Listado de facturas · Generado: ${fecha}`, 14, 28);
+  const cols = ['Factura','Proveedor','Monto','Emisión','Vencimiento','Estado'];
+  const rows = facts.map(f => [
+    f.numero || '',
+    f.empresa || 'Sin proveedor',
+    fmt(f.monto),
+    f.fecha_emision || '',
+    f.fecha_vencimiento || '',
+    f.estado === 'pagada' ? 'Pagada' : f.estado === 'vencida' ? 'Vencida' : 'Pendiente'
+  ]);
+  doc.autoTable({
+    head: [cols], body: rows, startY: 34,
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [196, 57, 10], textColor: 255, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [250, 248, 244] },
+    columnStyles: { 0: { cellWidth: 30 }, 1: { cellWidth: 45 }, 2: { cellWidth: 25 }, 3: { cellWidth: 23 }, 4: { cellWidth: 23 }, 5: { cellWidth: 25 } }
+  });
+  const pagadas = facts.filter(f => f.estado === 'pagada').length;
+  const pendientes = facts.filter(f => f.estado === 'pendiente').length;
+  const vencidas = facts.filter(f => f.estado === 'vencida').length;
+  const finalY = doc.lastAutoTable.finalY + 8;
+  doc.setFont('helvetica','bold');
+  doc.text(`Total: ${facts.length} facturas · Pagadas: ${pagadas} · Pendientes: ${pendientes} · Vencidas: ${vencidas}`, 14, finalY);
+  doc.save(`facturas_ferrepro_${new Date().toISOString().split('T')[0]}.pdf`);
+  toast('Exportación de facturas a PDF completada','success');
+}
+
+// ─────────── CERRAR MODAL CLICK FUERA ───────────
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) { m.classList.remove('open'); editId = null; } });
+});
+
+// ─────────── INIT ───────────
+if (checkAuth()) {
+  initDB().catch(e => {
+    document.getElementById('loading').innerHTML = `<p style="color:red">Error al iniciar: ${e.message}</p>`;
+  });
+} else {
+  document.getElementById('login-pass').addEventListener('keypress', e => {
+    if (e.key === 'Enter') verificarSesion();
+  });
+  document.getElementById('login-user').addEventListener('keypress', e => {
+    if (e.key === 'Enter') document.getElementById('login-pass').focus();
+  });
+}
+</script>
+</body>
+</html>
