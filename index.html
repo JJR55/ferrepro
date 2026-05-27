@@ -6,7 +6,6 @@
 <title>FerrePro — Sistema de Inventario</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
@@ -186,6 +185,18 @@ tbody tr:hover{background:var(--bg)}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:10px}
+
+/* BACKUP SPECIFIC */
+.backup-list{max-height:300px;overflow-y:auto;margin:1rem 0}
+.backup-item{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r);margin-bottom:6px;transition:.2s}
+.backup-item:hover{background:var(--bg);border-color:var(--accent)}
+.backup-item .backup-info{display:flex;flex-direction:column;gap:2px}
+.backup-item .backup-info strong{font-size:14px;color:var(--text)}
+.backup-item .backup-info span{font-size:12px;color:var(--text3)}
+.backup-item .backup-actions{display:flex;gap:6px}
+.backup-empty{text-align:center;padding:2rem;color:var(--text3);font-size:14px}
+.backup-progress{display:none;text-align:center;padding:1rem}
+.backup-progress.active{display:block}
 </style>
 </head>
 <body>
@@ -193,15 +204,15 @@ tbody tr:hover{background:var(--bg)}
 <div id="loading">
   <div class="logo-big">Ferre<span>Pro</span></div>
   <div class="spinner"></div>
-  <p style="font-size:14px;color:var(--text3)">Iniciando base de datos…</p>
+  <p style="font-size:14px;color:var(--text3)">Conectando con servidor…</p>
 </div>
 
 <div id="topbar" style="display:none">
   <div class="logo">Ferre<span>Pro</span></div>
-  <div class="db-status"><div class="dot"></div><span id="db-info">SQLite activo</span></div>
+  <div class="db-status"><div class="dot"></div><span id="db-info">Turso Cloud DB</span></div>
   <div style="display:flex;gap:8px">
     <button class="btn btn-secondary btn-sm" onclick="abrirModal('modal-cambiar-pass')">🔐 Contraseña</button>
-    <button class="btn btn-secondary btn-sm" onclick="abrirModal('modal-backups')">💾 Backups</button>
+    <button class="btn btn-secondary btn-sm" onclick="abrirModalBackups()">💾 Backups</button>
     <button class="btn btn-secondary btn-sm" onclick="cerrarSesion()">Salir</button>
   </div>
 </div>
@@ -478,175 +489,158 @@ tbody tr:hover{background:var(--bg)}
   </div>
 </div>
 
+<!-- MODAL BACKUPS -->
+<div class="modal-overlay" id="modal-backups">
+  <div class="modal" style="max-width:560px">
+    <h3 class="modal-title">💾 Administrar Backups</h3>
+    
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:1rem">
+      <button class="btn btn-primary" onclick="crearBackup()">📀 Crear Backup</button>
+      <label class="btn btn-secondary" style="cursor:pointer">
+        📂 Subir Backup <input type="file" accept=".json" style="display:none" onchange="restaurarBackupArchivo(this)">
+      </label>
+    </div>
+
+    <div id="backup-progress" class="backup-progress">
+      <div class="spinner" style="width:24px;height:24px;margin:0 auto 8px"></div>
+      <p style="font-size:14px;color:var(--text2)">Procesando…</p>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <strong style="font-size:14px;color:var(--text2)">Backups disponibles</strong>
+      <span id="backup-count" style="font-size:12px;color:var(--text3)">0 backups</span>
+    </div>
+    <div id="backup-list" class="backup-list">
+      <div class="backup-empty">No hay backups. Crea uno para proteger tus datos.</div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-backups')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <script>
-// ─────────── DB ───────────
-let db;
-let editId = null;
+// ═══════════════════════════════════════════
+//  API CONFIG
+// ═══════════════════════════════════════════
 
-// ─────────── AUTENTICACIÓN ───────────
-let USER_PASS = localStorage.getItem('ferrepro_pass') || 'ferrepro2026';
+// Cambia esto por la URL de tu backend en producción
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:5000'
+  : '';  // En Vercel, las rutas /api/ son relativas al mismo dominio
 
-function cambiarContrasena() {
-  const pasActual = document.getElementById('pass-actual').value;
-  const pasNueva = document.getElementById('pass-nueva').value;
-  const pasConfirma = document.getElementById('pass-confirma').value;
-  const msg = document.getElementById('pass-msg');
-  
-  if (!pasActual || !pasNueva || !pasConfirma) {
-    msg.textContent = 'Todos los campos son requeridos';
-    msg.style.color = 'var(--red)';
-    msg.style.display = 'block';
-    return;
-  }
-  
-  if (pasActual !== USER_PASS) {
-    msg.textContent = 'La contraseña actual es incorrecta';
-    msg.style.color = 'var(--red)';
-    msg.style.display = 'block';
-    return;
-  }
-  
-  if (pasNueva !== pasConfirma) {
-    msg.textContent = 'Las nuevas contraseñas no coinciden';
-    msg.style.color = 'var(--red)';
-    msg.style.display = 'block';
-    return;
-  }
-  
-  if (pasNueva.length < 6) {
-    msg.textContent = 'La contraseña debe tener al menos 6 caracteres';
-    msg.style.color = 'var(--red)';
-    msg.style.display = 'block';
-    return;
-  }
-  
-  USER_PASS = pasNueva;
-  localStorage.setItem('ferrepro_pass', pasNueva);
-  msg.textContent = '✓ Contraseña actualizada correctamente';
-  msg.style.color = 'var(--green)';
-  msg.style.display = 'block';
-  
-  document.getElementById('pass-actual').value = '';
-  document.getElementById('pass-nueva').value = '';
-  document.getElementById('pass-confirma').value = '';
-  
-  setTimeout(() => {
-    cerrarModal('modal-cambiar-pass');
-    msg.style.display = 'none';
-    toast('Contraseña cambiadaexitosamente', 'success');
-  }, 1500);
+let AUTH_TOKEN = localStorage.getItem('ferrepro_token') || '';
+
+function apiURL(path) {
+  return `${API_BASE}/api${path}`;
 }
+
+async function api(method, path, body) {
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+  };
+  if (AUTH_TOKEN) {
+    opts.headers['Authorization'] = `Bearer ${AUTH_TOKEN}`;
+  }
+  if (body !== undefined) {
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(apiURL(path), opts);
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Error de conexión');
+  }
+  return data;
+}
+
+function apiGET(path, params) {
+  const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+  return api('GET', path + qs);
+}
+
+function apiPOST(path, body) { return api('POST', path, body); }
+function apiPUT(path, body) { return api('PUT', path, body); }
+function apiDELETE(path) { return api('DELETE', path); }
+
+// ═══════════════════════════════════════════
+//  AUTHENTICATION
+// ═══════════════════════════════════════════
+
+let editId = null;
+let invFiltrados = [];
 
 function verificarSesion() {
   const usuario = document.getElementById('login-user').value.trim();
-  const pass = document.getElementById('login-pass').value.trim();
+  const password = document.getElementById('login-pass').value.trim();
   const nota = document.getElementById('login-note');
-  
-  if (!usuario || !pass) {
+
+  if (!usuario || !password) {
     nota.textContent = 'Usuario y contraseña son requeridos';
     nota.style.display = 'block';
     return;
   }
-  
-  if (usuario !== 'admin' || pass !== USER_PASS) {
-    nota.textContent = 'Usuario o contraseña incorrectos';
-    nota.style.display = 'block';
-    return;
-  }
-  
-  localStorage.setItem('ferrepro_autenticado', 'true');
-  document.getElementById('login-screen').style.display = 'none';
-  initDB();
+
+  apiPOST('/login', { username: usuario, password })
+    .then(data => {
+      if (data.ok) {
+        AUTH_TOKEN = data.token;
+        localStorage.setItem('ferrepro_token', AUTH_TOKEN);
+        document.getElementById('login-screen').style.display = 'none';
+        initApp();
+      } else {
+        nota.textContent = 'Usuario o contraseña incorrectos';
+        nota.style.display = 'block';
+      }
+    })
+    .catch(err => {
+      nota.textContent = 'Error de conexión con el servidor: ' + err.message;
+      nota.style.display = 'block';
+    });
 }
 
 function cerrarSesion() {
-  localStorage.removeItem('ferrepro_autenticado');
+  localStorage.removeItem('ferrepro_token');
   document.location.reload();
 }
 
 function checkAuth() {
-  if (localStorage.getItem('ferrepro_autenticado') !== 'true') {
-    document.getElementById('login-screen').style.display = 'flex';
-    document.getElementById('topbar').style.display = 'none';
-    document.getElementById('tabs').style.display = 'none';
-    document.getElementById('app').style.display = 'none';
-    document.getElementById('loading').style.display = 'none';
-    return false;
-  }
-  return true;
+  return !!localStorage.getItem('ferrepro_token');
 }
 
-async function initDB() {
-  const SQL = await initSqlJs({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${f}` });
-  const saved = localStorage.getItem('ferrepro_db');
-  if (saved) {
-    const arr = Uint8Array.from(atob(saved), c => c.charCodeAt(0));
-    db = new SQL.Database(arr);
-  } else {
-    db = new SQL.Database();
-  }
-  createTables();
-  saveDB();
-  document.getElementById('loading').style.display = 'none';
-  document.getElementById('topbar').style.display = 'flex';
-  document.getElementById('tabs').style.display = 'flex';
-  document.getElementById('app').style.display = 'block';
-  renderDashboard();
-  renderInventario();
-  renderProveedores();
-  renderFacturas();
-  checkAlertas();
-}
+// ═══════════════════════════════════════════
+//  INIT APP
+// ═══════════════════════════════════════════
 
-function createTables() {
-  db.run(`CREATE TABLE IF NOT EXISTS articulos (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    codigo TEXT UNIQUE, nombre TEXT, departamento TEXT,
-    precio_costo REAL, precio_venta REAL, stock INTEGER, stock_min INTEGER,
-    descripcion TEXT, proveedor_id INTEGER, unidad TEXT
-  )`);
-  try { db.run('ALTER TABLE articulos ADD COLUMN precio_costo REAL DEFAULT 0'); } catch(e) {}
-  try { db.run('ALTER TABLE articulos ADD COLUMN precio_venta REAL DEFAULT 0'); } catch(e) {}
-  db.run(`CREATE TABLE IF NOT EXISTS proveedores (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    empresa TEXT, contacto TEXT, telefono TEXT, email TEXT,
-    departamento TEXT, direccion TEXT, rnc TEXT, dias_credito INTEGER, notas TEXT
-  )`);
-  db.run(`CREATE TABLE IF NOT EXISTS facturas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    numero TEXT, proveedor_id INTEGER, monto REAL,
-    fecha_emision TEXT, fecha_vencimiento TEXT, estado TEXT, descripcion TEXT
-  )`);
-}
-
-function saveDB() {
-  const data = db.export();
-  const b64 = btoa(String.fromCharCode(...data));
-  localStorage.setItem('ferrepro_db', b64);
-  // Backup automático con timestamp
-  const backups = JSON.parse(localStorage.getItem('ferrepro_backups') || '[]');
-  backups.unshift({
-    timestamp: new Date().toISOString(),
-    size: b64.length
-  });
-  // Mantener solo los últimos 10 backups
-  if (backups.length > 10) backups.pop();
-  localStorage.setItem('ferrepro_backups', JSON.stringify(backups));
-}
-
-function query(sql, params=[]) {
+async function initApp() {
   try {
-    const res = db.exec(sql, params);
-    if (!res.length) return [];
-    return res[0].values.map(row => {
-      const obj = {};
-      res[0].columns.forEach((c, i) => obj[c] = row[i]);
-      return obj;
-    });
-  } catch(e) { console.error(e); return []; }
+    // Check health
+    const health = await apiGET('/health');
+    document.getElementById('db-info').textContent = 'Turso: ' + (health.status || 'conectado');
+    
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('topbar').style.display = 'flex';
+    document.getElementById('tabs').style.display = 'flex';
+    document.getElementById('app').style.display = 'block';
+    
+    renderDashboard();
+    renderInventario();
+    renderProveedores();
+    renderFacturas();
+  } catch (e) {
+    document.getElementById('loading').innerHTML = `
+      <div class="logo-big">Ferre<span>Pro</span></div>
+      <p style="color:var(--red)">❌ Error al conectar con el servidor</p>
+      <p style="font-size:13px;color:var(--text2)">${e.message}</p>
+      <button class="btn btn-primary" onclick="initApp()" style="margin-top:1rem">Reintentar</button>`;
+  }
 }
 
-// ─────────── TABS ───────────
+// ═══════════════════════════════════════════
+//  TABS
+// ═══════════════════════════════════════════
+
 function switchTab(name, evt) {
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -656,7 +650,10 @@ function switchTab(name, evt) {
   if (name === 'facturas') renderFacturas();
 }
 
-// ─────────── TOAST ───────────
+// ═══════════════════════════════════════════
+//  TOAST & MODAL HELPERS
+// ═══════════════════════════════════════════
+
 function toast(msg, type='success') {
   const el = document.createElement('div');
   el.className = `toast-msg ${type}`;
@@ -665,11 +662,13 @@ function toast(msg, type='success') {
   setTimeout(() => el.remove(), 3500);
 }
 
-// ─────────── MODAL ───────────
 function cerrarModal(id) { document.getElementById(id).classList.remove('open'); editId = null; }
 function abrirModal(id) { document.getElementById(id).classList.add('open'); }
 
-// ─────────── HELPERS ───────────
+// ═══════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════
+
 function fmt(n) { return new Intl.NumberFormat('es-DO', {style:'currency', currency:'DOP', minimumFractionDigits:2}).format(n||0); }
 function diffDias(fechaStr) {
   const hoy = new Date(); hoy.setHours(0,0,0,0);
@@ -683,65 +682,63 @@ function estadoBadge(estado) {
   return `<span class="badge ${m[estado]||'badge-warn'}">${l[estado]||estado}</span>`;
 }
 
-// ─────────── DASHBOARD ───────────
-function renderDashboard() {
-  const arts = query('SELECT * FROM articulos');
-  const provs = query('SELECT * FROM proveedores');
-  const facts = query("SELECT * FROM facturas WHERE estado='pendiente'");
-  const bajos = arts.filter(a => a.stock <= a.stock_min);
-  const totalCosto = arts.reduce((s, a) => s + ((a.precio_costo||0) * a.stock), 0);
-  const totalVenta = arts.reduce((s, a) => s + ((a.precio_venta||0) * a.stock), 0);
-  const margen = totalVenta - totalCosto;
-  const pctMargen = totalCosto > 0 ? ((margen / totalCosto) * 100).toFixed(1) : 0;
+// ═══════════════════════════════════════════
+//  DASHBOARD
+// ═══════════════════════════════════════════
 
-  document.getElementById('dash-stats').innerHTML = `
-    <div class="stat-card"><div class="stat-label">Artículos</div><div class="stat-val">${arts.length}</div></div>
-    <div class="stat-card green"><div class="stat-label">Costo Total</div><div class="stat-val">${fmt(totalCosto)}</div></div>
-    <div class="stat-card amber"><div class="stat-label">Valor Venta</div><div class="stat-val">${fmt(totalVenta)}</div></div>
-    <div class="stat-card" style="background:var(--blue-bg);border-color:#a8c8f0"><div class="stat-label">Margen Bruto</div><div class="stat-val" style="color:var(--blue)">${fmt(margen)} (${pctMargen}%)</div></div>
-    <div class="stat-card accent"><div class="stat-label">Proveedores</div><div class="stat-val">${provs.length}</div></div>
-    <div class="stat-card red"><div class="stat-label">Facturas Pend.</div><div class="stat-val">${facts.length}</div></div>
-  `;
+async function renderDashboard() {
+  try {
+    const stats = await apiGET('/stats');
+    
+    document.getElementById('dash-stats').innerHTML = `
+      <div class="stat-card"><div class="stat-label">Artículos</div><div class="stat-val">${stats.total_articulos}</div></div>
+      <div class="stat-card green"><div class="stat-label">Costo Total</div><div class="stat-val">${fmt(stats.total_costo)}</div></div>
+      <div class="stat-card amber"><div class="stat-label">Valor Venta</div><div class="stat-val">${fmt(stats.total_venta)}</div></div>
+      <div class="stat-card" style="background:var(--blue-bg);border-color:#a8c8f0"><div class="stat-label">Margen Bruto</div><div class="stat-val" style="color:var(--blue)">${fmt(stats.margen)} (${stats.pct_margen}%)</div></div>
+      <div class="stat-card accent"><div class="stat-label">Proveedores</div><div class="stat-val">${stats.total_proveedores}</div></div>
+      <div class="stat-card red"><div class="stat-label">Facturas Pend.</div><div class="stat-val">${stats.total_pendientes}</div></div>
+    `;
 
-  // Chart dept
-  const depts = ['Repuesto','Ferretería','Plomería','Electricidad','Hogar'];
-  const max = Math.max(1, ...depts.map(d => arts.filter(a => a.departamento===d).length));
-  const colors = {'Repuesto':'#7F77DD','Ferretería':'#378ADD','Plomería':'#1D9E75','Electricidad':'#EF9F27','Hogar':'#E24B4A'};
-  document.getElementById('dept-chart').innerHTML = depts.map(d => {
-    const cnt = arts.filter(a => a.departamento===d).length;
-    return `<div class="mini-bar-row">
-      <span class="mini-bar-label">${d}</span>
-      <div class="mini-bar-track"><div class="mini-bar-fill" style="width:${Math.round(cnt/max*100)}%;background:${colors[d]}"></div></div>
-      <span class="mini-bar-count">${cnt}</span>
-    </div>`;
-  }).join('');
+    // Dept chart
+    const colors = {'Repuesto':'#7F77DD','Ferretería':'#378ADD','Plomería':'#1D9E75','Electricidad':'#EF9F27','Hogar':'#E24B4A'};
+    const depts = stats.dept_counts || {};
+    const max = Math.max(1, ...Object.values(depts));
+    document.getElementById('dept-chart').innerHTML = Object.entries(depts).map(([d, cnt]) =>
+      `<div class="mini-bar-row">
+        <span class="mini-bar-label">${d}</span>
+        <div class="mini-bar-track"><div class="mini-bar-fill" style="width:${Math.round(cnt/max*100)}%;background:${colors[d]||'#378ADD'}"></div></div>
+        <span class="mini-bar-count">${cnt}</span>
+      </div>`
+    ).join('');
 
-  // Próximos vencimientos
-  const proxFacts = query("SELECT f.*, p.empresa FROM facturas f LEFT JOIN proveedores p ON f.proveedor_id=p.id WHERE f.estado='pendiente' ORDER BY f.fecha_vencimiento ASC LIMIT 6");
-  const hoy = new Date(); hoy.setHours(0,0,0,0);
-  if (!proxFacts.length) {
-    document.getElementById('prox-venc-list').innerHTML = '<div class="empty" style="padding:1.5rem"><p>Sin facturas pendientes</p></div>';
-  } else {
-    document.getElementById('prox-venc-list').innerHTML = proxFacts.map(f => {
-      const dias = diffDias(f.fecha_vencimiento);
-      const cls = dias < 0 ? 'danger' : dias <= 7 ? 'warning' : 'info';
-      const tag = dias < 0 ? `Vencida hace ${Math.abs(dias)}d` : dias === 0 ? 'Vence hoy' : `${dias}d restantes`;
-      return `<div class="alert-item ${cls}" style="margin-bottom:6px">
-        <div class="alert-text"><strong>${f.numero} — ${f.empresa||'Sin proveedor'}</strong>
-        <span>${fmt(f.monto)} · ${tag}</span></div>
-      </div>`;
-    }).join('');
+    // Proximos vencimientos
+    const proxFacts = stats.prox_vencimientos || [];
+    if (!proxFacts.length) {
+      document.getElementById('prox-venc-list').innerHTML = '<div class="empty" style="padding:1.5rem"><p>Sin facturas pendientes</p></div>';
+    } else {
+      document.getElementById('prox-venc-list').innerHTML = proxFacts.map(f => {
+        const dias = diffDias(f.fecha_vencimiento);
+        const cls = dias < 0 ? 'danger' : dias <= 7 ? 'warning' : 'info';
+        const tag = dias < 0 ? `Vencida hace ${Math.abs(dias)}d` : dias === 0 ? 'Vence hoy' : `${dias}d restantes`;
+        return `<div class="alert-item ${cls}" style="margin-bottom:6px">
+          <div class="alert-text"><strong>${f.numero} — ${f.empresa||'Sin proveedor'}</strong>
+          <span>${fmt(f.monto)} · ${tag}</span></div>
+        </div>`;
+      }).join('');
+    }
+
+    // Alertas
+    checkAlertas(stats);
+  } catch (e) {
+    toast('Error al cargar dashboard: ' + e.message, 'error');
   }
-
-  // Alertas
-  checkAlertas();
 }
 
-function checkAlertas() {
-  const facts = query("SELECT f.*, p.empresa FROM facturas f LEFT JOIN proveedores p ON f.proveedor_id=p.id WHERE f.estado='pendiente'");
-  const bajos = query('SELECT * FROM articulos WHERE stock <= stock_min');
+function checkAlertas(stats) {
+  if (!stats) return;
   let html = '';
-  facts.forEach(f => {
+  
+  (stats.prox_vencimientos || []).forEach(f => {
     const dias = diffDias(f.fecha_vencimiento);
     if (dias <= 7 && dias >= 0) {
       html += `<div class="alert-item warning"><span class="alert-icon">⚠️</span><div class="alert-text">
@@ -755,94 +752,99 @@ function checkAlertas() {
       </div></div>`;
     }
   });
-  if (bajos.length) {
+  
+  if (stats.bajos > 0) {
+    const lista = (stats.bajos_lista || []).map(a => a.nombre).join(', ');
     html += `<div class="alert-item warning"><span class="alert-icon">📦</span><div class="alert-text">
-      <strong>${bajos.length} artículo${bajos.length!==1?'s':''} con stock bajo</strong>
-      <span>${bajos.slice(0,3).map(a=>a.nombre).join(', ')}${bajos.length>3?' y más…':''}</span>
+      <strong>${stats.bajos} artículo${stats.bajos!==1?'s':''} con stock bajo</strong>
+      <span>${lista}${stats.bajos > 5 ? ' y más…' : ''}</span>
     </div></div>`;
   }
+  
   const el = document.getElementById('dash-alerts');
   if (el) el.innerHTML = html;
-  const fel = document.getElementById('fact-alerts');
-  if (fel) {
-    const factHtml = facts.filter(f => diffDias(f.fecha_vencimiento) <= 7).map(f => {
-      const d = diffDias(f.fecha_vencimiento);
-      const cls = d < 0 ? 'danger' : 'warning';
-      const tag = d < 0 ? `Vencida hace ${Math.abs(d)} días` : d === 0 ? 'Vence hoy' : `Vence en ${d} días`;
-      return `<div class="alert-item ${cls}"><span class="alert-icon">${d<0?'🚨':'⚠️'}</span><div class="alert-text">
-        <strong>${f.numero} — ${f.empresa||'Sin proveedor'}</strong>
-        <span>${tag} · ${fmt(f.monto)}</span></div></div>`;
-    }).join('');
-    fel.innerHTML = factHtml;
-  }
 }
 
-// ─────────── INVENTARIO ───────────
-let invFiltrados = [];
+// ═══════════════════════════════════════════
+//  INVENTARIO
+// ═══════════════════════════════════════════
 
-function renderInventario(lista) {
-  const arts = lista || query('SELECT a.*, p.empresa as prov_nombre FROM articulos a LEFT JOIN proveedores p ON a.proveedor_id=p.id ORDER BY a.nombre');
-  invFiltrados = arts;
-  const tbody = document.getElementById('tbody-inv');
-  const empty = document.getElementById('inv-empty');
-  if (!arts.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
-  empty.style.display='none';
-  tbody.innerHTML = arts.map(a => {
-    const bajo = a.stock <= a.stock_min;
-    const estadoHTML = bajo
-      ? `<span class="badge badge-low">⚠️ Bajo</span>`
-      : `<span class="badge badge-ok">✓ OK</span>`;
-    return `<tr>
-      <td><code style="font-size:12px">${a.codigo||''}</code></td>
-      <td><strong>${a.nombre}</strong>${a.descripcion?`<br><span style="font-size:12px;color:var(--text3)">${a.descripcion}</span>`:''}</td>
-      <td><span class="badge dept-${a.departamento||'Ferretería'}">${a.departamento||''}</span></td>
-      <td>${fmt(a.precio_costo||0)}</td>
-      <td>${fmt((a.precio_costo||0) * a.stock)}</td>
-      <td>${fmt(a.precio_venta||0)}</td>
-      <td>${fmt((a.precio_venta||0) * a.stock)}</td>
-      <td style="font-weight:600;color:${bajo?'var(--red)':'inherit'}">${a.stock} ${a.unidad||'u.'}</td>
-      <td style="color:var(--text3)">${a.stock_min}</td>
-      <td>${estadoHTML}</td>
-      <td><div class="actions-cell">
-        <button class="btn btn-secondary btn-sm" onclick="editarArticulo(${a.id})">✏️</button>
-        <button class="btn btn-danger btn-sm" onclick="confirmEliminar('articulo',${a.id})">🗑</button>
-      </div></td>
-    </tr>`;
-  }).join('');
+async function renderInventario(lista) {
+  try {
+    const arts = lista || await apiGET('/articulos');
+    invFiltrados = arts;
+    const tbody = document.getElementById('tbody-inv');
+    const empty = document.getElementById('inv-empty');
+    if (!arts.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+    empty.style.display='none';
+    tbody.innerHTML = arts.map(a => {
+      const bajo = a.stock <= a.stock_min;
+      const estadoHTML = bajo
+        ? `<span class="badge badge-low">⚠️ Bajo</span>`
+        : `<span class="badge badge-ok">✓ OK</span>`;
+      return `<tr>
+        <td><code style="font-size:12px">${a.codigo||''}</code></td>
+        <td><strong>${a.nombre}</strong>${a.descripcion?`<br><span style="font-size:12px;color:var(--text3)">${a.descripcion}</span>`:''}</td>
+        <td><span class="badge dept-${a.departamento||'Ferretería'}">${a.departamento||''}</span></td>
+        <td>${fmt(a.precio_costo||0)}</td>
+        <td>${fmt((a.precio_costo||0) * a.stock)}</td>
+        <td>${fmt(a.precio_venta||0)}</td>
+        <td>${fmt((a.precio_venta||0) * a.stock)}</td>
+        <td style="font-weight:600;color:${bajo?'var(--red)':'inherit'}">${a.stock} ${a.unidad||'u.'}</td>
+        <td style="color:var(--text3)">${a.stock_min}</td>
+        <td>${estadoHTML}</td>
+        <td><div class="actions-cell">
+          <button class="btn btn-secondary btn-sm" onclick="editarArticulo(${a.id})">✏️</button>
+          <button class="btn btn-danger btn-sm" onclick="confirmEliminar('articulo',${a.id})">🗑</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    toast('Error al cargar inventario: ' + e.message, 'error');
+  }
 }
 
 function filtrarInventario() {
   const q = document.getElementById('inv-search').value.toLowerCase();
   const dept = document.getElementById('inv-dept').value;
   const stock = document.getElementById('inv-stock').value;
-  let arts = query('SELECT a.*, p.empresa as prov_nombre FROM articulos a LEFT JOIN proveedores p ON a.proveedor_id=p.id ORDER BY a.nombre');
-  if (q) arts = arts.filter(a => (a.nombre||'').toLowerCase().includes(q) || (a.codigo||'').toLowerCase().includes(q));
-  if (dept) arts = arts.filter(a => a.departamento === dept);
-  if (stock === 'bajo') arts = arts.filter(a => a.stock <= a.stock_min);
-  if (stock === 'ok') arts = arts.filter(a => a.stock > a.stock_min);
-  renderInventario(arts);
+  
+  // Filter from all articulos via API
+  const params = {};
+  if (q) params.search = q;
+  if (dept) params.departamento = dept;
+  if (stock) params.stock = stock;
+  
+  apiGET('/articulos', params)
+    .then(arts => renderInventario(arts))
+    .catch(e => toast('Error al filtrar: ' + e.message, 'error'));
 }
 
-function abrirModalArticulo(id) {
+async function abrirModalArticulo(id) {
   editId = id || null;
   document.getElementById('modal-art-title').textContent = id ? 'Editar Artículo' : 'Nuevo Artículo';
-  const provs = query('SELECT id, empresa FROM proveedores ORDER BY empresa');
-  const sel = document.getElementById('art-prov');
-  sel.innerHTML = '<option value="">— Sin proveedor —</option>' + provs.map(p => `<option value="${p.id}">${p.empresa}</option>`).join('');
-    if (id) {
-    const a = query('SELECT * FROM articulos WHERE id=?', [id])[0];
-    if (a) {
+  
+  // Load proveedores for dropdown
+  try {
+    const provs = await apiGET('/proveedores');
+    const sel = document.getElementById('art-prov');
+    sel.innerHTML = '<option value="">— Sin proveedor —</option>' + provs.map(p => `<option value="${p.id}">${p.empresa}</option>`).join('');
+  } catch(e) {}
+  
+  if (id) {
+    try {
+      const a = await apiGET(`/articulos/${id}`);
       document.getElementById('art-codigo').value = a.codigo||'';
       document.getElementById('art-nombre').value = a.nombre||'';
       document.getElementById('art-dept').value = a.departamento||'Ferretería';
-        document.getElementById('art-precio-costo').value = a.precio_costo||0;
-        document.getElementById('art-precio-venta').value = a.precio_venta||0;
+      document.getElementById('art-precio-costo').value = a.precio_costo||0;
+      document.getElementById('art-precio-venta').value = a.precio_venta||0;
       document.getElementById('art-stock').value = a.stock||0;
       document.getElementById('art-min').value = a.stock_min||0;
       document.getElementById('art-desc').value = a.descripcion||'';
       document.getElementById('art-prov').value = a.proveedor_id||'';
       document.getElementById('art-unidad').value = a.unidad||'';
-    }
+    } catch(e) { toast('Error al cargar artículo','error'); return; }
   } else {
     ['art-codigo','art-nombre','art-precio-costo','art-precio-venta','art-stock','art-min','art-desc','art-unidad'].forEach(id => document.getElementById(id).value='');
     document.getElementById('art-dept').value='Ferretería';
@@ -853,7 +855,7 @@ function abrirModalArticulo(id) {
 
 function editarArticulo(id) { abrirModalArticulo(id); }
 
-function guardarArticulo() {
+async function guardarArticulo() {
   const codigo = document.getElementById('art-codigo').value.trim();
   const nombre = document.getElementById('art-nombre').value.trim();
   const dept = document.getElementById('art-dept').value;
@@ -865,54 +867,64 @@ function guardarArticulo() {
   const provId = document.getElementById('art-prov').value||null;
   const unidad = document.getElementById('art-unidad').value.trim();
   if (!nombre) { toast('El nombre es requerido','error'); return; }
+  
+  const body = { codigo, nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min: min, descripcion: desc, proveedor_id: provId, unidad };
+  
   try {
     if (editId) {
-      db.run('UPDATE articulos SET codigo=?,nombre=?,departamento=?,precio_costo=?,precio_venta=?,stock=?,stock_min=?,descripcion=?,proveedor_id=?,unidad=? WHERE id=?',
-        [codigo,nombre,dept,precio_costo,precio_venta,stock,min,desc,provId,unidad,editId]);
+      await apiPUT(`/articulos/${editId}`, body);
       toast('Artículo actualizado');
     } else {
-      db.run('INSERT INTO articulos(codigo,nombre,departamento,precio_costo,precio_venta,stock,stock_min,descripcion,proveedor_id,unidad) VALUES(?,?,?,?,?,?,?,?,?,?)',
-        [codigo,nombre,dept,precio_costo,precio_venta,stock,min,desc,provId,unidad]);
+      await apiPOST('/articulos', body);
       toast('Artículo agregado');
     }
-    saveDB(); cerrarModal('modal-articulo'); renderInventario(); renderDashboard();
-  } catch(e) { toast(e.message.includes('UNIQUE') ? 'El código ya existe' : 'Error al guardar','error'); }
+    cerrarModal('modal-articulo');
+    renderInventario();
+    renderDashboard();
+  } catch(e) {
+    toast(e.message.includes('ya existe') ? 'El código ya existe' : 'Error al guardar: ' + e.message, 'error');
+  }
 }
 
-// ─────────── PROVEEDORES ───────────
-function renderProveedores(lista) {
-  const provs = lista || query('SELECT p.*, (SELECT COUNT(*) FROM facturas f WHERE f.proveedor_id=p.id) as num_fact FROM proveedores p ORDER BY p.empresa');
-  const tbody = document.getElementById('tbody-prov');
-  const empty = document.getElementById('prov-empty');
-  if (!provs.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
-  empty.style.display='none';
-  tbody.innerHTML = provs.map(p => `<tr>
-    <td><strong>${p.empresa}</strong>${p.rnc?`<br><span style="font-size:12px;color:var(--text3)">RNC: ${p.rnc}</span>`:''}</td>
-    <td>${p.contacto||'—'}</td>
-    <td>${p.telefono||'—'}</td>
-    <td>${p.email?`<a href="mailto:${p.email}" style="color:var(--blue)">${p.email}</a>`:'—'}</td>
-    <td>${p.departamento?`<span class="badge dept-${p.departamento}">${p.departamento}</span>`:'—'}</td>
-    <td><span class="badge badge-ok">${p.num_fact||0} factura${p.num_fact!==1?'s':''}</span></td>
-    <td><div class="actions-cell">
-      <button class="btn btn-secondary btn-sm" onclick="editarProveedor(${p.id})">✏️</button>
-      <button class="btn btn-danger btn-sm" onclick="confirmEliminar('proveedor',${p.id})">🗑</button>
-    </div></td>
-  </tr>`).join('');
+// ═══════════════════════════════════════════
+//  PROVEEDORES
+// ═══════════════════════════════════════════
+
+async function renderProveedores(lista) {
+  try {
+    const provs = lista || await apiGET('/proveedores');
+    const tbody = document.getElementById('tbody-prov');
+    const empty = document.getElementById('prov-empty');
+    if (!provs.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+    empty.style.display='none';
+    tbody.innerHTML = provs.map(p => `<tr>
+      <td><strong>${p.empresa}</strong>${p.rnc?`<br><span style="font-size:12px;color:var(--text3)">RNC: ${p.rnc}</span>`:''}</td>
+      <td>${p.contacto||'—'}</td>
+      <td>${p.telefono||'—'}</td>
+      <td>${p.email?`<a href="mailto:${p.email}" style="color:var(--blue)">${p.email}</a>`:'—'}</td>
+      <td>${p.departamento?`<span class="badge dept-${p.departamento}">${p.departamento}</span>`:'—'}</td>
+      <td><span class="badge badge-ok">${p.num_fact||0} factura${p.num_fact!==1?'s':''}</span></td>
+      <td><div class="actions-cell">
+        <button class="btn btn-secondary btn-sm" onclick="editarProveedor(${p.id})">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmEliminar('proveedor',${p.id})">🗑</button>
+      </div></td>
+    </tr>`).join('');
+  } catch(e) { toast('Error al cargar proveedores: ' + e.message, 'error'); }
 }
 
 function filtrarProveedores() {
   const q = document.getElementById('prov-search').value.toLowerCase();
-  let provs = query('SELECT p.*, (SELECT COUNT(*) FROM facturas f WHERE f.proveedor_id=p.id) as num_fact FROM proveedores p ORDER BY p.empresa');
-  if (q) provs = provs.filter(p => (p.empresa||'').toLowerCase().includes(q) || (p.contacto||'').toLowerCase().includes(q));
-  renderProveedores(provs);
+  apiGET('/proveedores', q ? { search: q } : {})
+    .then(provs => renderProveedores(provs))
+    .catch(e => toast('Error al filtrar: ' + e.message, 'error'));
 }
 
-function abrirModalProveedor(id) {
+async function abrirModalProveedor(id) {
   editId = id || null;
   document.getElementById('modal-prov-title').textContent = id ? 'Editar Proveedor' : 'Nuevo Proveedor';
   if (id) {
-    const p = query('SELECT * FROM proveedores WHERE id=?', [id])[0];
-    if (p) {
+    try {
+      const p = await apiGET(`/proveedores/${id}`);
       document.getElementById('prov-empresa').value = p.empresa||'';
       document.getElementById('prov-contacto').value = p.contacto||'';
       document.getElementById('prov-tel').value = p.telefono||'';
@@ -922,7 +934,7 @@ function abrirModalProveedor(id) {
       document.getElementById('prov-rnc').value = p.rnc||'';
       document.getElementById('prov-credito').value = p.dias_credito||30;
       document.getElementById('prov-notas').value = p.notas||'';
-    }
+    } catch(e) { toast('Error al cargar proveedor','error'); return; }
   } else {
     ['prov-empresa','prov-contacto','prov-tel','prov-email','prov-dir','prov-rnc','prov-notas'].forEach(i => document.getElementById(i).value='');
     document.getElementById('prov-dept').value='';
@@ -933,75 +945,92 @@ function abrirModalProveedor(id) {
 
 function editarProveedor(id) { abrirModalProveedor(id); }
 
-function guardarProveedor() {
+async function guardarProveedor() {
   const empresa = document.getElementById('prov-empresa').value.trim();
   if (!empresa) { toast('El nombre de la empresa es requerido','error'); return; }
-  const vals = [empresa, document.getElementById('prov-contacto').value.trim(),
-    document.getElementById('prov-tel').value.trim(), document.getElementById('prov-email').value.trim(),
-    document.getElementById('prov-dept').value, document.getElementById('prov-dir').value.trim(),
-    document.getElementById('prov-rnc').value.trim(),
-    parseInt(document.getElementById('prov-credito').value)||30,
-    document.getElementById('prov-notas').value.trim()];
-  if (editId) {
-    db.run('UPDATE proveedores SET empresa=?,contacto=?,telefono=?,email=?,departamento=?,direccion=?,rnc=?,dias_credito=?,notas=? WHERE id=?', [...vals, editId]);
-    toast('Proveedor actualizado');
-  } else {
-    db.run('INSERT INTO proveedores(empresa,contacto,telefono,email,departamento,direccion,rnc,dias_credito,notas) VALUES(?,?,?,?,?,?,?,?,?)', vals);
-    toast('Proveedor agregado');
-  }
-  saveDB(); cerrarModal('modal-proveedor'); renderProveedores(); renderDashboard();
+  const body = {
+    empresa,
+    contacto: document.getElementById('prov-contacto').value.trim(),
+    telefono: document.getElementById('prov-tel').value.trim(),
+    email: document.getElementById('prov-email').value.trim(),
+    departamento: document.getElementById('prov-dept').value,
+    direccion: document.getElementById('prov-dir').value.trim(),
+    rnc: document.getElementById('prov-rnc').value.trim(),
+    dias_credito: parseInt(document.getElementById('prov-credito').value)||30,
+    notas: document.getElementById('prov-notas').value.trim()
+  };
+  try {
+    if (editId) {
+      await apiPUT(`/proveedores/${editId}`, body);
+      toast('Proveedor actualizado');
+    } else {
+      await apiPOST('/proveedores', body);
+      toast('Proveedor agregado');
+    }
+    cerrarModal('modal-proveedor');
+    renderProveedores();
+    renderDashboard();
+  } catch(e) { toast('Error al guardar: ' + e.message, 'error'); }
 }
 
-// ─────────── FACTURAS ───────────
-function renderFacturas(lista) {
-  const facts = lista || query("SELECT f.*, p.empresa FROM facturas f LEFT JOIN proveedores p ON f.proveedor_id=p.id ORDER BY f.fecha_vencimiento ASC");
-  const tbody = document.getElementById('tbody-fact');
-  const empty = document.getElementById('fact-empty');
-  if (!facts.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
-  empty.style.display='none';
-  tbody.innerHTML = facts.map(f => {
-    const dias = diffDias(f.fecha_vencimiento);
-    let diasHTML;
-    if (f.estado === 'pagada') diasHTML = '<span class="badge badge-ok">Pagada</span>';
-    else if (dias < 0) diasHTML = `<span class="badge badge-venc">${Math.abs(dias)}d vencida</span>`;
-    else if (dias <= 7) diasHTML = `<span class="badge badge-warn">⚠️ ${dias}d</span>`;
-    else diasHTML = `<span style="color:var(--text2)">${dias}d</span>`;
-    return `<tr>
-      <td><strong>${f.numero}</strong></td>
-      <td>${f.empresa||'—'}</td>
-      <td style="font-weight:600">${fmt(f.monto)}</td>
-      <td>${f.fecha_emision||'—'}</td>
-      <td>${f.fecha_vencimiento||'—'}</td>
-      <td>${diasHTML}</td>
-      <td>${estadoBadge(f.estado)}</td>
-      <td><div class="actions-cell">
-        ${f.estado!=='pagada'?`<button class="btn btn-green btn-sm" onclick="marcarPagada(${f.id})">✓ Pagar</button>`:''}
-        <button class="btn btn-secondary btn-sm" onclick="editarFactura(${f.id})">✏️</button>
-        <button class="btn btn-danger btn-sm" onclick="confirmEliminar('factura',${f.id})">🗑</button>
-      </div></td>
-    </tr>`;
-  }).join('');
-  checkAlertas();
+// ═══════════════════════════════════════════
+//  FACTURAS
+// ═══════════════════════════════════════════
+
+async function renderFacturas(lista) {
+  try {
+    const facts = lista || await apiGET('/facturas');
+    const tbody = document.getElementById('tbody-fact');
+    const empty = document.getElementById('fact-empty');
+    if (!facts.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+    empty.style.display='none';
+    tbody.innerHTML = facts.map(f => {
+      const dias = diffDias(f.fecha_vencimiento);
+      let diasHTML;
+      if (f.estado === 'pagada') diasHTML = '<span class="badge badge-ok">Pagada</span>';
+      else if (dias < 0) diasHTML = `<span class="badge badge-venc">${Math.abs(dias)}d vencida</span>`;
+      else if (dias <= 7) diasHTML = `<span class="badge badge-warn">⚠️ ${dias}d</span>`;
+      else diasHTML = `<span style="color:var(--text2)">${dias}d</span>`;
+      return `<tr>
+        <td><strong>${f.numero}</strong></td>
+        <td>${f.empresa||'—'}</td>
+        <td style="font-weight:600">${fmt(f.monto)}</td>
+        <td>${f.fecha_emision||'—'}</td>
+        <td>${f.fecha_vencimiento||'—'}</td>
+        <td>${diasHTML}</td>
+        <td>${estadoBadge(f.estado)}</td>
+        <td><div class="actions-cell">
+          ${f.estado!=='pagada'?`<button class="btn btn-green btn-sm" onclick="marcarPagada(${f.id})">✓ Pagar</button>`:''}
+          <button class="btn btn-secondary btn-sm" onclick="editarFactura(${f.id})">✏️</button>
+          <button class="btn btn-danger btn-sm" onclick="confirmEliminar('factura',${f.id})">🗑</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  } catch(e) { toast('Error al cargar facturas: ' + e.message, 'error'); }
 }
 
 function filtrarFacturas() {
   const q = document.getElementById('fact-search').value.toLowerCase();
   const est = document.getElementById('fact-estado').value;
-  let facts = query("SELECT f.*, p.empresa FROM facturas f LEFT JOIN proveedores p ON f.proveedor_id=p.id ORDER BY f.fecha_vencimiento ASC");
-  if (q) facts = facts.filter(f => (f.numero||'').toLowerCase().includes(q) || (f.empresa||'').toLowerCase().includes(q));
-  if (est) facts = facts.filter(f => f.estado === est);
-  renderFacturas(facts);
+  const params = {};
+  if (q) params.search = q;
+  if (est) params.estado = est;
+  apiGET('/facturas', params)
+    .then(facts => renderFacturas(facts))
+    .catch(e => toast('Error al filtrar: ' + e.message, 'error'));
 }
 
-function abrirModalFactura(id) {
+async function abrirModalFactura(id) {
   editId = id || null;
   document.getElementById('modal-fact-title').textContent = id ? 'Editar Factura' : 'Nueva Factura';
-  const provs = query('SELECT id, empresa FROM proveedores ORDER BY empresa');
-  const sel = document.getElementById('fact-prov-sel');
-  sel.innerHTML = '<option value="">Seleccionar…</option>' + provs.map(p => `<option value="${p.id}">${p.empresa}</option>`).join('');
+  try {
+    const provs = await apiGET('/proveedores');
+    const sel = document.getElementById('fact-prov-sel');
+    sel.innerHTML = '<option value="">Seleccionar…</option>' + provs.map(p => `<option value="${p.id}">${p.empresa}</option>`).join('');
+  } catch(e) {}
   if (id) {
-    const f = query('SELECT * FROM facturas WHERE id=?', [id])[0];
-    if (f) {
+    try {
+      const f = await apiGET(`/facturas/${id}`);
       document.getElementById('fact-num').value = f.numero||'';
       document.getElementById('fact-prov-sel').value = f.proveedor_id||'';
       document.getElementById('fact-monto').value = f.monto||0;
@@ -1009,7 +1038,7 @@ function abrirModalFactura(id) {
       document.getElementById('fact-emision').value = f.fecha_emision||'';
       document.getElementById('fact-vence').value = f.fecha_vencimiento||'';
       document.getElementById('fact-desc').value = f.descripcion||'';
-    }
+    } catch(e) { toast('Error al cargar factura','error'); return; }
   } else {
     ['fact-num','fact-monto','fact-desc'].forEach(i => document.getElementById(i).value='');
     document.getElementById('fact-est-sel').value='pendiente';
@@ -1023,7 +1052,7 @@ function abrirModalFactura(id) {
 
 function editarFactura(id) { abrirModalFactura(id); }
 
-function guardarFactura() {
+async function guardarFactura() {
   const num = document.getElementById('fact-num').value.trim();
   const provId = document.getElementById('fact-prov-sel').value||null;
   const monto = parseFloat(document.getElementById('fact-monto').value)||0;
@@ -1032,110 +1061,149 @@ function guardarFactura() {
   const vence = document.getElementById('fact-vence').value;
   const desc = document.getElementById('fact-desc').value.trim();
   if (!num || !emision || !vence) { toast('Número, emisión y vencimiento son requeridos','error'); return; }
-  if (editId) {
-    db.run('UPDATE facturas SET numero=?,proveedor_id=?,monto=?,fecha_emision=?,fecha_vencimiento=?,estado=?,descripcion=? WHERE id=?',
-      [num,provId,monto,emision,vence,est,desc,editId]);
-    toast('Factura actualizada');
-  } else {
-    db.run('INSERT INTO facturas(numero,proveedor_id,monto,fecha_emision,fecha_vencimiento,estado,descripcion) VALUES(?,?,?,?,?,?,?)',
-      [num,provId,monto,emision,vence,est,desc]);
-    toast('Factura registrada');
-  }
-  saveDB(); cerrarModal('modal-factura'); renderFacturas(); renderDashboard();
+  const body = { numero: num, proveedor_id: provId, monto, estado: est, fecha_emision: emision, fecha_vencimiento: vence, descripcion: desc };
+  try {
+    if (editId) {
+      await apiPUT(`/facturas/${editId}`, body);
+      toast('Factura actualizada');
+    } else {
+      await apiPOST('/facturas', body);
+      toast('Factura registrada');
+    }
+    cerrarModal('modal-factura');
+    renderFacturas();
+    renderDashboard();
+  } catch(e) { toast('Error al guardar: ' + e.message, 'error'); }
 }
 
-function marcarPagada(id) {
-  db.run("UPDATE facturas SET estado='pagada' WHERE id=?", [id]);
-  saveDB(); renderFacturas(); renderDashboard(); toast('Factura marcada como pagada','success');
+async function marcarPagada(id) {
+  try {
+    await apiPOST(`/facturas/${id}/pagar`);
+    renderFacturas();
+    renderDashboard();
+    toast('Factura marcada como pagada','success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
-// ─────────── ELIMINAR ───────────
+// ═══════════════════════════════════════════
+//  ELIMINAR
+// ═══════════════════════════════════════════
+
 function confirmEliminar(tipo, id) {
   const msgs = {articulo:'¿Eliminar este artículo del inventario?',proveedor:'¿Eliminar este proveedor? Sus facturas quedarán sin proveedor asignado.',factura:'¿Eliminar esta factura?'};
   document.getElementById('confirm-msg').textContent = msgs[tipo];
-  document.getElementById('confirm-ok-btn').onclick = () => {
-    const tablas = {articulo:'articulos',proveedor:'proveedores',factura:'facturas'};
-    db.run(`DELETE FROM ${tablas[tipo]} WHERE id=?`, [id]);
-    saveDB(); cerrarModal('modal-confirm');
-    if (tipo==='articulo') { renderInventario(); renderDashboard(); }
-    if (tipo==='proveedor') { renderProveedores(); renderDashboard(); }
-    if (tipo==='factura') { renderFacturas(); renderDashboard(); }
-    toast('Eliminado correctamente');
+  document.getElementById('confirm-ok-btn').onclick = async () => {
+    try {
+      const paths = {articulo:'articulos',proveedor:'proveedores',factura:'facturas'};
+      await apiDELETE(`/${paths[tipo]}/${id}`);
+      cerrarModal('modal-confirm');
+      if (tipo==='articulo') { renderInventario(); renderDashboard(); }
+      if (tipo==='proveedor') { renderProveedores(); renderDashboard(); }
+      if (tipo==='factura') { renderFacturas(); renderDashboard(); }
+      toast('Eliminado correctamente');
+    } catch(e) { toast('Error: ' + e.message, 'error'); }
   };
   abrirModal('modal-confirm');
 }
 
-// ─────────── IMPORTAR EXCEL ───────────
-function importarExcel(input) {
+// ═══════════════════════════════════════════
+//  IMPORTAR EXCEL
+// ═══════════════════════════════════════════
+
+async function importarExcel(input) {
   const file = input.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const wb = XLSX.read(e.target.result, {type:'binary'});
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws);
-      let ok=0, err=0;
-      rows.forEach(r => {
-        const codigo = String(r['Código']||r['Codigo']||r['codigo']||'').trim();
-        const nombre = String(r['Nombre']||r['nombre']||'').trim();
-        const dept = String(r['Departamento']||r['departamento']||'Ferretería').trim();
-        const precio_costo = parseFloat(r['Precio de Costo']||r['PrecioCosto']||r['precio_costo']||r['precio']||0);
-        const precio_venta = parseFloat(r['Precio de Venta']||r['PrecioVenta']||r['precio_venta']||0);
-        const stock = parseInt(r['Stock']||r['stock']||0);
-        const min = parseInt(r['Stock Mínimo']||r['Stock Minimo']||r['stock_min']||5);
-        const desc = String(r['Descripción']||r['Descripcion']||r['descripcion']||'').trim();
-        const unidad = String(r['Unidad']||r['unidad']||'u.').trim();
-        if (!nombre) { err++; return; }
-        try {
-          if (codigo) {
-            const ex = query('SELECT id FROM articulos WHERE codigo=?', [codigo]);
-            if (ex.length) {
-              db.run('UPDATE articulos SET nombre=?,departamento=?,precio_costo=?,precio_venta=?,stock=?,stock_min=?,descripcion=?,unidad=? WHERE codigo=?',
-                [nombre,dept,precio_costo,precio_venta,stock,min,desc,unidad,codigo]);
+  
+  // Send file to backend
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  try {
+    const res = await fetch(apiURL('/importar-excel'), {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+      body: formData
+    });
+    const data = await res.json();
+    if (data.ok) {
+      toast(`Importados: ${data.importados} artículos${data.errores ? ' · Errores: '+data.errores : ''}`, 'success');
+      renderInventario();
+      renderDashboard();
+    } else {
+      toast('Error al importar: ' + (data.error || 'desconocido'), 'error');
+    }
+  } catch(e) {
+    // Fallback: client-side import (same as before)
+    const reader = new FileReader();
+    reader.onload = e2 => {
+      try {
+        const wb = XLSX.read(e2.target.result, {type:'binary'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws);
+        if (!rows.length) { toast('Archivo vacío','error'); return; }
+        
+        let ok=0, err=0;
+        rows.forEach(async r => {
+          const nombre = String(r['Nombre']||r['nombre']||'').trim();
+          if (!nombre) { err++; return; }
+          const codigo = String(r['Código']||r['Codigo']||r['codigo']||'').trim();
+          const dept = String(r['Departamento']||r['departamento']||'Ferretería').trim();
+          const precio_costo = parseFloat(r['Precio de Costo']||r['PrecioCosto']||r['precio_costo']||r['precio']||0);
+          const precio_venta = parseFloat(r['Precio de Venta']||r['PrecioVenta']||r['precio_venta']||0);
+          const stock = parseInt(r['Stock']||r['stock']||0);
+          const stock_min = parseInt(r['Stock Mínimo']||r['Stock Minimo']||r['stock_min']||5);
+          try {
+            if (codigo) {
+              const existing = await apiGET('/articulos?search=' + encodeURIComponent(codigo));
+              if (existing.length && existing.some(a => a.codigo === codigo)) {
+                await apiPUT(`/articulos/${existing.find(a => a.codigo === codigo).id}`, { nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min });
+              } else {
+                await apiPOST('/articulos', { codigo, nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min });
+              }
             } else {
-              db.run('INSERT INTO articulos(codigo,nombre,departamento,precio_costo,precio_venta,stock,stock_min,descripcion,unidad) VALUES(?,?,?,?,?,?,?,?,?)',
-                [codigo,nombre,dept,precio_costo,precio_venta,stock,min,desc,unidad]);
+              await apiPOST('/articulos', { nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min });
             }
-          } else {
-            db.run('INSERT INTO articulos(nombre,departamento,precio_costo,precio_venta,stock,stock_min,descripcion,unidad) VALUES(?,?,?,?,?,?,?,?)',
-              [nombre,dept,precio_costo,precio_venta,stock,min,desc,unidad]);
-          }
-          ok++;
-        } catch(ex) { err++; }
-      });
-      saveDB(); renderInventario(); renderDashboard();
-      toast(`Importados: ${ok} artículos${err?' · Errores: '+err:''}`, ok>0?'success':'error');
-    } catch(e) { toast('Error al leer el archivo Excel','error'); }
-    input.value='';
-  };
-  reader.readAsBinaryString(file);
+            ok++;
+          } catch(ex) { err++; }
+        });
+        toast(`Importados: ${ok} artículos${err?' · Errores: '+err:''}`, ok>0?'success':'error');
+        renderInventario();
+        renderDashboard();
+      } catch(e3) { toast('Error al leer el archivo Excel','error'); }
+    };
+    reader.readAsBinaryString(file);
+  }
+  input.value='';
 }
 
-// ─────────── EXPORTAR EXCEL ───────────
-function exportarExcel() {
-  const arts = query('SELECT a.codigo, a.nombre, a.departamento, a.precio_costo, a.precio_venta, a.stock, a.stock_min, a.unidad, a.descripcion, p.empresa as proveedor FROM articulos a LEFT JOIN proveedores p ON a.proveedor_id=p.id ORDER BY a.nombre');
-  if (!arts.length) { toast('No hay artículos para exportar','error'); return; }
-  const data = arts.map(a => ({
-    'Código': a.codigo||'',
-    'Nombre': a.nombre,
-    'Departamento': a.departamento,
-    'Precio de Costo': a.precio_costo||0,
-    'Precio de Venta': a.precio_venta||0,
-    'Stock': a.stock,
-    'Stock Mínimo': a.stock_min,
-    'Unidad': a.unidad||'u.',
-    'Descripción': a.descripcion||'',
-    'Proveedor': a.proveedor||''
-  }));
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
-  XLSX.writeFile(wb, `inventario_ferrepro_${new Date().toISOString().split('T')[0]}.xlsx`);
-  toast('Inventario exportado a Excel','success');
+// ═══════════════════════════════════════════
+//  EXPORTAR EXCEL / PDF
+// ═══════════════════════════════════════════
+
+async function exportarExcel() {
+  try {
+    const arts = await apiGET('/exportar-articulos');
+    if (!arts.length) { toast('No hay artículos para exportar','error'); return; }
+    const data = arts.map(a => ({
+      'Código': a.codigo||'',
+      'Nombre': a.nombre,
+      'Departamento': a.departamento,
+      'Precio de Costo': a.precio_costo||0,
+      'Precio de Venta': a.precio_venta||0,
+      'Stock': a.stock,
+      'Stock Mínimo': a.stock_min,
+      'Unidad': a.unidad||'u.',
+      'Descripción': a.descripcion||'',
+      'Proveedor': a.proveedor||''
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
+    XLSX.writeFile(wb, `inventario_ferrepro_${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast('Inventario exportado a Excel','success');
+  } catch(e) { toast('Error al exportar: ' + e.message, 'error'); }
 }
 
-// ─────────── PLANTILLA EXCEL ───────────
 function descargarPlantilla() {
   const data = [
     {'Código':'FER-001','Nombre':'Ejemplo Tornillo 1/4"','Departamento':'Ferretería','Precio de Costo':2.00,'Precio de Venta':5.00,'Stock':100,'Stock Mínimo':20,'Unidad':'caja','Descripción':'Tornillo cabeza plana'},
@@ -1148,168 +1216,342 @@ function descargarPlantilla() {
   toast('Plantilla descargada','info');
 }
 
-// ─────────── PDF STOCK BAJO ───────────
-function exportarStockBajoPDF() {
-  const bajos = query('SELECT a.*, p.empresa as proveedor FROM articulos a LEFT JOIN proveedores p ON a.proveedor_id=p.id WHERE a.stock <= a.stock_min ORDER BY a.departamento, a.nombre');
-  if (!bajos.length) { toast('No hay artículos con stock bajo 🎉','info'); return; }
-  
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF('p', 'mm', 'a4');
-  const fecha = new Date().toLocaleDateString('es-DO');
-  const depts = ['Repuesto','Ferretería','Plomería','Electricidad','Hogar'];
-  let y = 20;
-  
-  // Título principal
-  doc.setFontSize(18);
-  doc.setFont('helvetica','bold');
-  doc.text('FerrePro — Lista de Compras', 14, y);
-  y += 10;
-  
-  doc.setFontSize(11);
-  doc.setFont('helvetica','normal');
-  doc.setTextColor(100);
-  doc.text(`Generado: ${fecha}`, 14, y);
-  y += 8;
-  
-  // Procesar por departamento
-  depts.forEach(dept => {
-    const deptItems = bajos.filter(a => a.departamento === dept);
-    if (!deptItems.length) return;
+async function exportarStockBajoPDF() {
+  try {
+    const arts = await apiGET('/articulos');
+    const bajos = arts.filter(a => a.stock <= a.stock_min);
+    if (!bajos.length) { toast('No hay artículos con stock bajo 🎉','info'); return; }
     
-    // Verificar si hay espacio para nueva sección
-    if (y > 250) {
-      doc.addPage();
-      y = 20;
-    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const fecha = new Date().toLocaleDateString('es-DO');
+    const depts = ['Repuesto','Ferretería','Plomería','Electricidad','Hogar'];
+    let y = 20;
     
-    doc.setTextColor(0);
+    doc.setFontSize(18);
+    doc.setFont('helvetica','bold');
+    doc.text('FerrePro — Lista de Compras', 14, y);
+    y += 10;
+    doc.setFontSize(11);
+    doc.setFont('helvetica','normal');
+    doc.setTextColor(100);
+    doc.text(`Generado: ${fecha}`, 14, y);
+    y += 8;
+    
+    depts.forEach(dept => {
+      const deptItems = bajos.filter(a => a.departamento === dept);
+      if (!deptItems.length) return;
+      if (y > 250) { doc.addPage(); y = 20; }
+      doc.setTextColor(0);
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(12);
+      doc.text(`📦 ${dept}`, 14, y);
+      y += 6;
+      const cols = ['Código','Nombre','Stock Act.','Stock Mín.','Necesitar','Costo Unit.','Total Costo'];
+      const rows = deptItems.map(a => {
+        const falta = Math.max(0, a.stock_min - a.stock + a.stock_min);
+        return [a.codigo||'', a.nombre, `${a.stock} ${a.unidad||'u.'}`, a.stock_min, falta, fmt(a.precio_costo||0), fmt((a.precio_costo||0) * falta)];
+      });
+      doc.autoTable({
+        head: [cols], body: rows, startY: y, margin: { left: 14, right: 14 },
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [196, 57, 10], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [250, 248, 244] },
+        columnStyles: { 1: { cellWidth: 35 } }
+      });
+      y = doc.lastAutoTable.finalY + 6;
+      const totalDept = deptItems.reduce((s, a) => s + ((a.precio_costo||0) * Math.max(0, a.stock_min - a.stock + a.stock_min)), 0);
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(9);
+      doc.text(`Subtotal ${dept}: ${fmt(totalDept)}`, 14, y);
+      y += 6;
+    });
+    
+    if (y > 270) doc.addPage();
+    const totalCosto = bajos.reduce((s, a) => s + ((a.precio_costo||0) * Math.max(0, a.stock_min - a.stock + a.stock_min)), 0);
+    const totalVenta = bajos.reduce((s, a) => s + ((a.precio_venta||0) * Math.max(0, a.stock_min - a.stock + a.stock_min)), 0);
     doc.setFont('helvetica','bold');
     doc.setFontSize(12);
-    doc.text(`📦 ${dept}`, 14, y);
-    y += 6;
-    
-    // Tabla para este departamento
-    const cols = ['Código','Nombre','Stock Act.','Stock Mín.','Necesitar','Costo Unit.','Total Costo'];
-    const rows = deptItems.map(a => {
-      const falta = Math.max(0, a.stock_min - a.stock + a.stock_min);
-      const costoUnit = a.precio_costo||0;
-      return [
-        a.codigo||'',
-        a.nombre,
-        `${a.stock} ${a.unidad||'u.'}`,
-        a.stock_min,
-        falta,
-        fmt(costoUnit),
-        fmt(costoUnit * falta)
-      ];
-    });
-    
+    doc.text('Resumen Total', 14, y);
+    y += 8;
+    doc.setFontSize(10);
+    doc.text(`Total costo estimado: ${fmt(totalCosto)}`, 14, y); y += 6;
+    doc.text(`Total venta estimado: ${fmt(totalVenta)}`, 14, y); y += 6;
+    doc.text(`Cantidad de artículos: ${bajos.length}`, 14, y);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text('FerrePro · Sistema de Inventario', 14, 285);
+    doc.save(`stock_bajo_${new Date().toISOString().split('T')[0]}.pdf`);
+    toast(`PDF generado: ${bajos.length} artículos organizados por departamentos`,'success');
+  } catch(e) { toast('Error al generar PDF: ' + e.message, 'error'); }
+}
+
+async function exportarFacturasPDF() {
+  try {
+    const facts = await apiGET('/facturas');
+    if (!facts.length) { toast('No hay facturas para exportar','error'); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const fecha = new Date().toLocaleDateString('es-DO');
+    doc.setFontSize(18);
+    doc.setFont('helvetica','bold');
+    doc.text('FerrePro — Facturas por Pagar', 14, 20);
+    doc.setFontSize(11);
+    doc.setFont('helvetica','normal');
+    doc.setTextColor(100);
+    doc.text(`Listado de facturas · Generado: ${fecha}`, 14, 28);
+    const cols = ['Factura','Proveedor','Monto','Emisión','Vencimiento','Estado'];
+    const rows = facts.map(f => [f.numero||'', f.empresa||'Sin proveedor', fmt(f.monto), f.fecha_emision||'', f.fecha_vencimiento||'', f.estado==='pagada'?'Pagada':f.estado==='vencida'?'Vencida':'Pendiente']);
     doc.autoTable({
-      head: [cols],
-      body: rows,
-      startY: y,
-      margin: { left: 14, right: 14 },
-      styles: { fontSize: 8, cellPadding: 2 },
+      head: [cols], body: rows, startY: 34,
+      styles: { fontSize: 9, cellPadding: 3 },
       headStyles: { fillColor: [196, 57, 10], textColor: 255, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [250, 248, 244] },
-      columnStyles: { 1: { cellWidth: 35 } }
+      columnStyles: { 0: { cellWidth: 30 }, 1: { cellWidth: 45 }, 2: { cellWidth: 25 }, 3: { cellWidth: 23 }, 4: { cellWidth: 23 }, 5: { cellWidth: 25 } }
     });
-    
-    y = doc.lastAutoTable.finalY + 6;
-    
-    // Subtotal por departamento
-    const totalDept = deptItems.reduce((s, a) => s + ((a.precio_costo||0) * Math.max(0, a.stock_min - a.stock + a.stock_min)), 0);
+    const pagadas = facts.filter(f => f.estado === 'pagada').length;
+    const pendientes = facts.filter(f => f.estado === 'pendiente').length;
+    const vencidas = facts.filter(f => f.estado === 'vencida').length;
+    const finalY = doc.lastAutoTable.finalY + 8;
     doc.setFont('helvetica','bold');
-    doc.setFontSize(9);
-    doc.text(`Subtotal ${dept}: ${fmt(totalDept)}`, 14, y);
-    y += 6;
-  });
-  
-  // Resumen final
-  if (y > 270) doc.addPage();
-  
-  const totalCosto = bajos.reduce((s, a) => s + ((a.precio_costo||0) * Math.max(0, a.stock_min - a.stock + a.stock_min)), 0);
-  const totalVenta = bajos.reduce((s, a) => s + ((a.precio_venta||0) * Math.max(0, a.stock_min - a.stock + a.stock_min)), 0);
-  
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(12);
-  doc.text(`Resumen Total`, 14, y);
-  y += 8;
-  
-  doc.setFontSize(10);
-  doc.text(`Total costo estimado: ${fmt(totalCosto)}`, 14, y);
-  y += 6;
-  doc.text(`Total venta estimado: ${fmt(totalVenta)}`, 14, y);
-  y += 6;
-  doc.text(`Cantidad de artículos: ${bajos.length}`, 14, y);
-  
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(8);
-  doc.setTextColor(150);
-  doc.text('FerrePro · Sistema de Inventario', 14, 285);
-  doc.save(`stock_bajo_${new Date().toISOString().split('T')[0]}.pdf`);
-  toast(`PDF generado: ${bajos.length} artículos organizados por departamentos`,'success');
+    doc.text(`Total: ${facts.length} facturas · Pagadas: ${pagadas} · Pendientes: ${pendientes} · Vencidas: ${vencidas}`, 14, finalY);
+    doc.save(`facturas_ferrepro_${new Date().toISOString().split('T')[0]}.pdf`);
+    toast('Exportación de facturas a PDF completada','success');
+  } catch(e) { toast('Error al exportar PDF: ' + e.message, 'error'); }
 }
 
+// ═══════════════════════════════════════════
+//  CAMBIAR CONTRASEÑA
+// ═══════════════════════════════════════════
 
-// ─────────── EXPORTAR FACTURAS A PDF ───────────
-function exportarFacturasPDF() {
-  const facts = query("SELECT f.numero, p.empresa, f.monto, f.fecha_emision, f.fecha_vencimiento, f.estado, f.descripcion FROM facturas f LEFT JOIN proveedores p ON f.proveedor_id=p.id ORDER BY f.fecha_vencimiento ASC");
-  if (!facts.length) { toast('No hay facturas para exportar','error'); return; }
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  const fecha = new Date().toLocaleDateString('es-DO');
-  doc.setFontSize(18);
-  doc.setFont('helvetica','bold');
-  doc.text('FerrePro — Facturas por Pagar', 14, 20);
-  doc.setFontSize(11);
-  doc.setFont('helvetica','normal');
-  doc.setTextColor(100);
-  doc.text(`Listado de facturas · Generado: ${fecha}`, 14, 28);
-  const cols = ['Factura','Proveedor','Monto','Emisión','Vencimiento','Estado'];
-  const rows = facts.map(f => [
-    f.numero || '',
-    f.empresa || 'Sin proveedor',
-    fmt(f.monto),
-    f.fecha_emision || '',
-    f.fecha_vencimiento || '',
-    f.estado === 'pagada' ? 'Pagada' : f.estado === 'vencida' ? 'Vencida' : 'Pendiente'
-  ]);
-  doc.autoTable({
-    head: [cols], body: rows, startY: 34,
-    styles: { fontSize: 9, cellPadding: 3 },
-    headStyles: { fillColor: [196, 57, 10], textColor: 255, fontStyle: 'bold' },
-    alternateRowStyles: { fillColor: [250, 248, 244] },
-    columnStyles: { 0: { cellWidth: 30 }, 1: { cellWidth: 45 }, 2: { cellWidth: 25 }, 3: { cellWidth: 23 }, 4: { cellWidth: 23 }, 5: { cellWidth: 25 } }
-  });
-  const pagadas = facts.filter(f => f.estado === 'pagada').length;
-  const pendientes = facts.filter(f => f.estado === 'pendiente').length;
-  const vencidas = facts.filter(f => f.estado === 'vencida').length;
-  const finalY = doc.lastAutoTable.finalY + 8;
-  doc.setFont('helvetica','bold');
-  doc.text(`Total: ${facts.length} facturas · Pagadas: ${pagadas} · Pendientes: ${pendientes} · Vencidas: ${vencidas}`, 14, finalY);
-  doc.save(`facturas_ferrepro_${new Date().toISOString().split('T')[0]}.pdf`);
-  toast('Exportación de facturas a PDF completada','success');
+async function cambiarContrasena() {
+  const pasActual = document.getElementById('pass-actual').value;
+  const pasNueva = document.getElementById('pass-nueva').value;
+  const pasConfirma = document.getElementById('pass-confirma').value;
+  const msg = document.getElementById('pass-msg');
+  
+  if (!pasActual || !pasNueva || !pasConfirma) {
+    msg.textContent = 'Todos los campos son requeridos';
+    msg.style.color = 'var(--red)'; msg.style.display = 'block'; return;
+  }
+  if (pasNueva !== pasConfirma) {
+    msg.textContent = 'Las nuevas contraseñas no coinciden';
+    msg.style.color = 'var(--red)'; msg.style.display = 'block'; return;
+  }
+  if (pasNueva.length < 6) {
+    msg.textContent = 'La contraseña debe tener al menos 6 caracteres';
+    msg.style.color = 'var(--red)'; msg.style.display = 'block'; return;
+  }
+  
+  try {
+    await apiPOST('/cambiar-pass', { password: pasNueva });
+    localStorage.setItem('ferrepro_token', pasNueva);
+    AUTH_TOKEN = pasNueva;
+    msg.textContent = '✓ Contraseña actualizada correctamente';
+    msg.style.color = 'var(--green)'; msg.style.display = 'block';
+    document.getElementById('pass-actual').value = '';
+    document.getElementById('pass-nueva').value = '';
+    document.getElementById('pass-confirma').value = '';
+    setTimeout(() => {
+      cerrarModal('modal-cambiar-pass');
+      msg.style.display = 'none';
+      toast('Contraseña cambiada exitosamente', 'success');
+    }, 1500);
+  } catch(e) {
+    msg.textContent = 'Error: ' + e.message;
+    msg.style.color = 'var(--red)'; msg.style.display = 'block';
+  }
 }
 
-// ─────────── CERRAR MODAL CLICK FUERA ───────────
+// ═══════════════════════════════════════════
+//  BACKUPS
+// ═══════════════════════════════════════════
+
+let backupList = [];
+
+function abrirModalBackups() {
+  abrirModal('modal-backups');
+  cargarListaBackups();
+}
+
+async function cargarListaBackups() {
+  const listEl = document.getElementById('backup-list');
+  const countEl = document.getElementById('backup-count');
+  const progressEl = document.getElementById('backup-progress');
+  
+  try {
+    const backups = await apiGET('/backups');
+    backupList = backups;
+    countEl.textContent = `${backups.length} backup${backups.length !== 1 ? 's' : ''}`;
+    
+    if (!backups.length) {
+      listEl.innerHTML = '<div class="backup-empty">No hay backups. Crea uno para proteger tus datos.</div>';
+      return;
+    }
+    
+    listEl.innerHTML = backups.map(b => {
+      const fecha = new Date(b.created_at + 'Z').toLocaleString('es-DO');
+      const sizeStr = b.size > 1024 ? `${(b.size / 1024).toFixed(1)} KB` : `${b.size} B`;
+      return `<div class="backup-item">
+        <div class="backup-info">
+          <strong>${b.filename}</strong>
+          <span>${fecha} · ${sizeStr}</span>
+        </div>
+        <div class="backup-actions">
+          <button class="btn btn-secondary btn-sm" onclick="descargarBackup(${b.id})" title="Descargar">⬇️</button>
+          <button class="btn btn-green btn-sm" onclick="restaurarBackup(${b.id})" title="Restaurar">🔄</button>
+          <button class="btn btn-danger btn-sm" onclick="eliminarBackup(${b.id})" title="Eliminar">🗑</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    listEl.innerHTML = `<div class="backup-empty" style="color:var(--red)">Error al cargar backups: ${e.message}</div>`;
+  }
+}
+
+async function crearBackup() {
+  const progressEl = document.getElementById('backup-progress');
+  progressEl.classList.add('active');
+  progressEl.innerHTML = '<div class="spinner" style="width:24px;height:24px;margin:0 auto 8px;border-top-color:var(--accent)"></div><p style="font-size:14px;color:var(--text2)">Creando backup…</p>';
+  
+  try {
+    const result = await apiPOST('/backups');
+    toast(`✅ Backup creado: ${result.filename}`, 'success');
+    await cargarListaBackups();
+  } catch(e) {
+    toast('❌ Error al crear backup: ' + e.message, 'error');
+  } finally {
+    progressEl.classList.remove('active');
+  }
+}
+
+async function descargarBackup(id) {
+  try {
+    const url = apiURL(`/backups/${id}/download`);
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+    });
+    if (!res.ok) throw new Error('Error al descargar');
+    
+    const blob = await res.blob();
+    const urlBlob = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = urlBlob;
+    a.download = backupList.find(b => b.id === id)?.filename || `backup_${id}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(urlBlob);
+    toast('Backup descargado', 'success');
+  } catch(e) {
+    toast('Error al descargar: ' + e.message, 'error');
+  }
+}
+
+async function restaurarBackup(id) {
+  if (!confirm('⚠️ ¿Estás seguro? Esta acción REEMPLAZARÁ todos los datos actuales con los del backup.')) return;
+  
+  const progressEl = document.getElementById('backup-progress');
+  progressEl.classList.add('active');
+  progressEl.innerHTML = '<div class="spinner" style="width:24px;height:24px;margin:0 auto 8px;border-top-color:var(--accent)"></div><p style="font-size:14px;color:var(--text2)">Restaurando backup…</p>';
+  
+  try {
+    const result = await apiPOST(`/backups/${id}/restore`);
+    toast(`✅ ${result.message}`, 'success');
+    cerrarModal('modal-backups');
+    renderDashboard();
+    renderInventario();
+    renderProveedores();
+    renderFacturas();
+  } catch(e) {
+    toast('❌ Error al restaurar: ' + e.message, 'error');
+  } finally {
+    progressEl.classList.remove('active');
+  }
+}
+
+async function eliminarBackup(id) {
+  if (!confirm('¿Eliminar este backup?')) return;
+  try {
+    await apiDELETE(`/backups/${id}`);
+    toast('Backup eliminado', 'success');
+    await cargarListaBackups();
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+function restaurarBackupArchivo(input) {
+  const file = input.files[0];
+  if (!file) return;
+  
+  if (!confirm('⚠️ ¿Estás seguro? Esta acción REEMPLAZARÁ todos los datos actuales con el contenido del archivo.')) {
+    input.value = '';
+    return;
+  }
+  
+  const progressEl = document.getElementById('backup-progress');
+  progressEl.classList.add('active');
+  progressEl.innerHTML = '<div class="spinner" style="width:24px;height:24px;margin:0 auto 8px;border-top-color:var(--accent)"></div><p style="font-size:14px;color:var(--text2)">Restaurando desde archivo…</p>';
+  
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  fetch(apiURL('/backups/restore-upload'), {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+    body: formData
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.ok) {
+      toast('✅ Backup restaurado exitosamente', 'success');
+      cerrarModal('modal-backups');
+      renderDashboard();
+      renderInventario();
+      renderProveedores();
+      renderFacturas();
+    } else {
+      toast('❌ Error: ' + (data.error || 'desconocido'), 'error');
+    }
+  })
+  .catch(err => {
+    toast('❌ Error al restaurar: ' + err.message, 'error');
+  })
+  .finally(() => {
+    progressEl.classList.remove('active');
+    input.value = '';
+  });
+}
+
+// ═══════════════════════════════════════════
+//  CERRAR MODAL AL HACER CLICK FUERA
+// ═══════════════════════════════════════════
+
 document.querySelectorAll('.modal-overlay').forEach(m => {
   m.addEventListener('click', e => { if (e.target === m) { m.classList.remove('open'); editId = null; } });
 });
 
-// ─────────── INIT ───────────
+// ═══════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════
+
 if (checkAuth()) {
-  initDB().catch(e => {
+  AUTH_TOKEN = localStorage.getItem('ferrepro_token');
+  initApp().catch(e => {
     document.getElementById('loading').innerHTML = `<p style="color:red">Error al iniciar: ${e.message}</p>`;
   });
 } else {
-  document.getElementById('login-pass').addEventListener('keypress', e => {
-    if (e.key === 'Enter') verificarSesion();
-  });
+  document.getElementById('loading').style.display = 'none';
   document.getElementById('login-user').addEventListener('keypress', e => {
     if (e.key === 'Enter') document.getElementById('login-pass').focus();
   });
+  document.getElementById('login-pass').addEventListener('keypress', e => {
+    if (e.key === 'Enter') verificarSesion();
+  });
 }
+
 </script>
 </body>
 </html>
