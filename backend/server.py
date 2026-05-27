@@ -7,15 +7,21 @@ import os
 import json
 import base64
 from datetime import datetime, date
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from io import BytesIO
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import sys, uuid, threading
+
+# Get the project root directory (ferrepro folder)
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, PROJECT_ROOT)
+
 import backend.db as db
 
-app = Flask(__name__)
+app = Flask(__name__, 
+    static_url_path='', 
+    static_folder=os.path.join(PROJECT_ROOT, '.'),
+    template_folder=os.path.join(PROJECT_ROOT, '.'))
 CORS(app)
 
 # ─── Auth (simple) ───
@@ -181,7 +187,10 @@ def get_proveedor(prov_id):
 
 @app.route("/api/proveedores", methods=["POST"])
 def create_proveedor():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON inválido"}), 400
+
     if not data.get("empresa"):
         return jsonify({"error": "El nombre de la empresa es requerido"}), 400
     
@@ -335,8 +344,8 @@ def get_stats():
         total_proveedores = len(provs)
         total_pendientes = facts_pend[0]["c"] if facts_pend else 0
         
-        total_costo = sum((a.get("precio_costo") or 0) * (a.get("stock") or 0) for a in arts)
-        total_venta = sum((a.get("precio_venta") or 0) * (a.get("stock") or 0) for a in arts)
+        total_costo = sum(float(a.get("precio_costo") or 0) * float(a.get("stock") or 0) for a in arts)
+        total_venta = sum(float(a.get("precio_venta") or 0) * float(a.get("stock") or 0) for a in arts)
         margen = total_venta - total_costo
         pct_margen = round((margen / total_costo * 100), 1) if total_costo > 0 else 0
         
@@ -384,67 +393,81 @@ def get_stats():
 #  IMPORT / EXPORT EXCEL
 # ═══════════════════════════════════════
 
+# Diccionario para guardar el estado de las importaciones
+import_tasks = {}
+
 @app.route("/api/importar-excel", methods=["POST"])
 def importar_excel():
     """Import articles from Excel file."""
     if "file" not in request.files:
         return jsonify({"error": "No se envió archivo"}), 400
-    
+
     file = request.files["file"]
     if not file.filename:
         return jsonify({"error": "Archivo vacío"}), 400
-    
-    try:
-        import openpyxl
-        wb = openpyxl.load_workbook(file)
-        ws = wb.active
-        
-        rows = list(ws.iter_rows(min_row=2, values_only=True))
-        headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-        
-        ok = 0
-        err = 0
-        for row in rows:
-            if not row or not row[1]:
-                err += 1
-                continue
-            try:
-                nombre = row[1] if len(row) > 1 else ""
-                if not nombre:
-                    err += 1
+
+    task_id = str(uuid.uuid4())
+    file_content = file.read()
+    import_tasks[task_id] = {"ok": 0, "err": 0, "total": 0, "status": "procesando", "cancelled": False}
+
+    def process_task(tid, content):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(BytesIO(content))
+            ws = wb.active
+            rows = list(ws.iter_rows(min_row=2, values_only=True))
+            import_tasks[tid]["total"] = len(rows)
+
+            for row in rows:
+                # Verificar si el usuario canceló la tarea
+                if import_tasks[tid].get("cancelled"):
+                    import_tasks[tid]["status"] = "cancelado"
+                    return
+
+                if not row or len(row) < 2 or not row[1]:
+                    import_tasks[tid]["err"] += 1
                     continue
-                
-                codigo = row[0] if len(row) > 0 else ""
-                dept = row[2] if len(row) > 2 and row[2] else "Ferretería"
-                precio_costo = float(row[3]) if len(row) > 3 and row[3] else 0
-                precio_venta = float(row[4]) if len(row) > 4 and row[4] else 0
-                stock = int(row[5]) if len(row) > 5 and row[5] else 0
-                stock_min = int(row[6]) if len(row) > 6 and row[6] else 5
-                
-                if codigo:
-                    existing = db.query("SELECT id FROM articulos WHERE codigo=?", [codigo])
-                    if existing:
-                        db.execute(
-                            "UPDATE articulos SET nombre=?, departamento=?, precio_costo=?, precio_venta=?, stock=?, stock_min=? WHERE codigo=?",
-                            [nombre, dept, precio_costo, precio_venta, stock, stock_min, codigo]
-                        )
+                try:
+                    nombre = row[1]
+                    codigo = row[0]
+                    dept = row[2] if len(row) > 2 and row[2] else "Ferretería"
+                    precio_costo = float(row[3]) if len(row) > 3 and row[3] else 0
+                    precio_venta = float(row[4]) if len(row) > 4 and row[4] else 0
+                    stock = int(row[5]) if len(row) > 5 and row[5] else 0
+                    stock_min = int(row[6]) if len(row) > 6 and row[6] else 5
+
+                    if codigo:
+                        existing = db.query("SELECT id FROM articulos WHERE codigo=?", [codigo])
+                        if existing:
+                            db.execute("UPDATE articulos SET nombre=?, departamento=?, precio_costo=?, precio_venta=?, stock=?, stock_min=? WHERE codigo=?",
+                                      [nombre, dept, precio_costo, precio_venta, stock, stock_min, codigo])
+                        else:
+                            db.execute("INSERT INTO articulos(codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min) VALUES(?,?,?,?,?,?,?)",
+                                      [codigo, nombre, dept, precio_costo, precio_venta, stock, stock_min])
                     else:
-                        db.execute(
-                            "INSERT INTO articulos(codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min) VALUES(?,?,?,?,?,?,?)",
-                            [codigo, nombre, dept, precio_costo, precio_venta, stock, stock_min]
-                        )
-                else:
-                    db.execute(
-                        "INSERT INTO articulos(nombre, departamento, precio_costo, precio_venta, stock, stock_min) VALUES(?,?,?,?,?,?)",
-                        [nombre, dept, precio_costo, precio_venta, stock, stock_min]
-                    )
-                ok += 1
-            except:
-                err += 1
-        
-        return jsonify({"ok": True, "importados": ok, "errores": err})
-    except Exception as e:
-        return jsonify({"error": f"Error al leer Excel: {str(e)}"}), 500
+                        db.execute("INSERT INTO articulos(nombre, departamento, precio_costo, precio_venta, stock, stock_min) VALUES(?,?,?,?,?,?)",
+                                  [nombre, dept, precio_costo, precio_venta, stock, stock_min])
+                    import_tasks[tid]["ok"] += 1
+                except Exception:
+                    import_tasks[tid]["err"] += 1
+            import_tasks[tid]["status"] = "completado"
+        except Exception as e:
+            import_tasks[tid]["status"] = "error"
+            import_tasks[tid]["error"] = str(e)
+
+    threading.Thread(target=process_task, args=(task_id, file_content)).start()
+    return jsonify({"ok": True, "task_id": task_id})
+
+@app.route("/api/importar-excel/status/<task_id>")
+def get_import_status(task_id):
+    return jsonify(import_tasks.get(task_id, {"status": "no_encontrado"}))
+
+@app.route("/api/importar-excel/cancel/<task_id>", methods=["POST"])
+def cancel_import_task(task_id):
+    if task_id in import_tasks:
+        import_tasks[task_id]["cancelled"] = True
+        return jsonify({"ok": True})
+    return jsonify({"error": "Tarea no encontrada"}), 404
 
 
 @app.route("/api/exportar-articulos", methods=["GET"])
@@ -658,6 +681,7 @@ def cambiar_password():
     data = request.get_json(silent=True) or {}
     if data.get("password", ""):
         return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Contraseña requerida"}), 400
 
 
 # ═══════════════════════════════════════
@@ -678,17 +702,17 @@ def health():
 
 
 @app.route("/")
-def index():
-    return jsonify({"app": "FerrePro API", "version": "1.0", "docs": "/api/health"})
+def serve_frontend():
+    return send_from_directory(PROJECT_ROOT, 'index.html')
 
 
 # ─── Init DB on startup ───
 def initialize():
     try:
         tables = db.init_db()
-        print(f"✅ DB connected. Tables: {[t['name'] for t in tables] if tables else 'none'}")
+        print(f"[OK] DB connected. Tables: {[t['name'] for t in tables] if tables else 'none'}")
     except Exception as e:
-        print(f"❌ DB init error: {e}")
+        print(f"[ERROR] DB init error: {e}")
 
 
 if __name__ == "__main__":
