@@ -20,9 +20,36 @@ Frontend (HTML/CSS/JS)  ───►  API REST (Flask)  ───►  Turso DB (
    index.html                       /api/*                libsql-client
 ```
 
+<<<<<<< HEAD
 - **Frontend**: HTML + CSS + JavaScript puro (sin frameworks)
 - **Backend**: Flask Python desplegado como serverless functions en Vercel
 - **Base de datos**: Turso (SQLite en la nube, basado en libsql)
+=======
+### Acceso a backups
+Los backups se pueden consultar desde la consola del navegador:
+```javascript
+JSON.parse(localStorage.getItem('ferrepro_backups'))
+```
+
+---
+
+## 🔐 Seguridad - Cambio de Contraseña
+
+### Contraseña por defecto
+- **Usuario:** `admin`
+- **Contraseña inicial:** ``
+
+### Cambiar contraseña desde la app
+1. Click en botón **🔐 Contraseña** en la barra superior
+2. Ingresar contraseña actual
+3. Ingresar y confirmar nueva contraseña
+4. La nueva contraseña se guarda en `localStorage` automáticamente
+
+```javascript
+// Se almacena en localStorage como:
+localStorage.setItem('ferrepro_pass', nuevaContrasena)
+```
+>>>>>>> bc6d7c30e7881cb6b94be3eb0678c6ac71259953
 
 ---
 
