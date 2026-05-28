@@ -197,6 +197,21 @@ tbody tr:hover{background:var(--bg)}
 .backup-empty{text-align:center;padding:2rem;color:var(--text3);font-size:14px}
 .backup-progress{display:none;text-align:center;padding:1rem}
 .backup-progress.active{display:block}
+
+/* ESTILOS BARRA DE PROGRESO MODERNA */
+.progress-container { background: var(--surface2); border-radius: var(--r2); padding: 1.5rem; margin-top: 1rem; border: 1px solid var(--border); }
+.progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.progress-track { width: 100%; height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden; position: relative; }
+.progress-fill { 
+  height: 100%; background: linear-gradient(90deg, var(--green), #48c774); 
+  width: 0%; transition: width 0.4s ease; border-radius: 6px;
+  background-size: 30px 30px;
+  background-image: linear-gradient(135deg, rgba(255,255,255,.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.15) 50%, rgba(255,255,255,.15) 75%, transparent 75%, transparent);
+  animation: progress-stripes 1s linear infinite;
+}
+.status-recibido{background:var(--green-bg);color:var(--green);font-weight:bold}
+.status-faltante{background:var(--red-bg);color:var(--red);font-weight:bold}
+@keyframes progress-stripes { from { background-position: 30px 0; } to { background-position: 0 0; } }
 </style>
 </head>
 <body>
@@ -209,7 +224,7 @@ tbody tr:hover{background:var(--bg)}
 
 <div id="topbar" style="display:none">
   <div class="logo">Ferre<span>Pro</span></div>
-  <div class="db-status"><div class="dot"></div><span id="db-info">Turso Cloud DB</span></div>
+  <div class="db-status"><div class="dot"></div><span id="db-info">Cloud DB</span></div>
   <div style="display:flex;gap:8px">
     <button class="btn btn-secondary btn-sm" onclick="abrirModal('modal-cambiar-pass')">🔐 Contraseña</button>
     <button class="btn btn-secondary btn-sm" onclick="abrirModalBackups()">💾 Backups</button>
@@ -240,6 +255,7 @@ tbody tr:hover{background:var(--bg)}
   <button class="tab-btn" onclick="switchTab('inventario', event)">📦 Inventario</button>
   <button class="tab-btn" onclick="switchTab('proveedores', event)">🏭 Proveedores</button>
   <button class="tab-btn" onclick="switchTab('facturas', event)">🧾 Cuentas por Pagar</button>
+  <button class="tab-btn" onclick="switchTab('compras', event)">🛒 Lista de Compras</button>
 </div>
 
 <div id="app" style="display:none">
@@ -260,11 +276,7 @@ tbody tr:hover{background:var(--bg)}
       </div>
     </div>
   </div>
-
-  <!-- INVENTARIO -->
   <div id="tab-inventario" class="tab-pane">
-    <h2 class="section-title">Inventario</h2>
-
     <div class="import-export-grid">
       <div class="io-card">
         <div class="io-icon">📥</div>
@@ -273,7 +285,7 @@ tbody tr:hover{background:var(--bg)}
         <label class="btn btn-secondary btn-sm" style="cursor:pointer">
           Seleccionar archivo <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importarExcel(this)">
         </label>
-        <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="descargarPlantilla()">📋 Descargar plantilla</button>
+        <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="descargarPlantilla()">📋 Plantilla</button>
       </div>
       <div class="io-card">
         <div class="io-icon">📤</div>
@@ -304,12 +316,25 @@ tbody tr:hover{background:var(--bg)}
       <button class="btn btn-primary btn-sm" onclick="abrirModalArticulo()">+ Nuevo Artículo</button>
     </div>
 
+    <!-- Barra de progreso movida aquí -->
+    <div id="import-progress-area" style="display: none;" class="progress-container">
+      <div class="progress-header">
+        <span id="import-status-msg" style="font-weight: 600; font-size: 13px;">Procesando...</span>
+        <span id="import-pct" style="font-weight: 800; color: var(--green);">0%</span>
+      </div>
+      <div class="progress-track"><div id="import-bar-fill" class="progress-fill"></div></div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+        <small id="import-details" style="color: var(--text3)"></small>
+        <button id="btn-cancel-import" class="btn btn-danger btn-sm" style="padding: 4px 10px; font-size: 11px;" onclick="cancelImport()">Cancelar</button>
+      </div>
+    </div>
+
     <div class="table-wrap">
       <table id="tabla-inv">
         <thead><tr>
           <th>Código</th><th>Nombre</th><th>Departamento</th>
-          <th>Precio Costo</th><th>Total Costo</th><th>Precio Venta</th><th>Total Venta</th>
-          <th>Stock</th><th>Stock Mín.</th><th>Estado</th><th>Acciones</th>
+            <th>Precio Costo</th><th>Precio Venta</th>
+            <th>Stock</th><th>Stock Mín.</th><th>Estado</th><th>Acciones</th>
         </tr></thead>
         <tbody id="tbody-inv"></tbody>
       </table>
@@ -344,6 +369,12 @@ tbody tr:hover{background:var(--bg)}
   <!-- FACTURAS / CUENTAS POR PAGAR -->
   <div id="tab-facturas" class="tab-pane">
     <h2 class="section-title">Cuentas por Pagar</h2>
+   <div class="stats-row" style="grid-template-columns: 1fr; margin-bottom: 1.5rem;">
+      <div class="stat-card red">
+        <div class="stat-label">Total por Pagar (Pendientes/Vencidas)</div>
+        <div class="stat-val" id="fact-total-val">RD$ 0.00</div>
+      </div>
+    </div>
     <div id="fact-alerts" class="alerts-panel"></div>
     <div class="toolbar">
       <div class="search-box">
@@ -356,6 +387,7 @@ tbody tr:hover{background:var(--bg)}
         <option value="pagada">Pagada</option>
         <option value="vencida">Vencida</option>
       </select>
+      <button class="btn btn-secondary btn-sm" onclick="abrirModalHistorialPagadas()">📜 Historial Pagadas</button>
       <button class="btn btn-secondary btn-sm" onclick="exportarFacturasPDF()">📄 Exportar Facturas PDF</button>
       <button class="btn btn-primary btn-sm" onclick="abrirModalFactura()">+ Nueva Factura</button>
     </div>
@@ -367,6 +399,53 @@ tbody tr:hover{background:var(--bg)}
     </div>
     <div id="fact-empty" class="empty" style="display:none">
       <div class="empty-icon">🧾</div><h3>Sin facturas</h3><p>Registra las facturas de tus proveedores</p>
+    </div>
+  </div>
+
+  <!-- LISTA DE COMPRAS -->
+  <div id="tab-compras" class="tab-pane">
+    <h2 class="section-title">Lista de Compras Urgentes</h2>
+    <div class="card" style="margin-bottom:1.5rem">
+      <div class="form-grid">
+        <div class="form-group"><label>Nombre del Artículo *</label><input type="text" id="compra-nombre" placeholder="Ej: Codo PVC 1/2"></div>
+        <div class="form-group"><label>Departamento</label>
+          <select id="compra-dept">
+            <option>Repuesto</option><option selected>Ferretería</option>
+            <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Cantidad a comprar</label><input type="number" id="compra-qty" value="1" min="1"></div>
+      </div>
+      <div style="margin-top:1rem;display:flex;gap:10px">
+        <button class="btn btn-primary" onclick="agregarAListaCompra()">+ Agregar a la lista</button>
+        <button class="btn btn-secondary" onclick="exportarListaCompraPDF()">📄 Exportar PDF</button>
+        <button class="btn btn-danger" onclick="limpiarListaCompra()">🗑 Limpiar Lista</button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <div class="search-box">
+        <span>🔍</span>
+        <input type="text" id="compra-search" placeholder="Filtrar por nombre…" oninput="renderListaCompras()">
+      </div>
+      <select id="compra-filter-dept" onchange="renderListaCompras()">
+        <option value="">Todos los departamentos</option>
+        <option>Repuesto</option><option>Ferretería</option>
+        <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
+      </select>
+      <select id="compra-export-dept" onchange="renderListaCompras()">
+        <option value="">Exportar todo</option>
+        <option>Repuesto</option><option>Ferretería</option>
+        <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr>
+        <th>Artículo</th><th>Departamento</th><th>Cantidad</th><th>Estado</th><th>Acciones</th>
+      </tr></thead>
+      <tbody id="tbody-compras"></tbody></table>
+    </div>
+    <div id="compras-empty" class="empty" style="display:none">
+      <div class="empty-icon">🛒</div><h3>Lista vacía</h3><p>Agrega artículos que necesites comprar con urgencia</p>
     </div>
   </div>
 </div>
@@ -520,6 +599,30 @@ tbody tr:hover{background:var(--bg)}
   </div>
 </div>
 
+<!-- MODAL HISTORIAL FACTURAS PAGADAS -->
+<div class="modal-overlay" id="modal-historial-pagadas">
+  <div class="modal" style="max-width:800px">
+    <h3 class="modal-title">📜 Historial de Facturas Pagadas</h3>
+    <div class="toolbar" style="margin-bottom:1rem">
+      <div class="form-group" style="flex:1"><label>Desde</label><input type="date" id="hist-pag-fecha-inicio"></div>
+      <div class="form-group" style="flex:1"><label>Hasta</label><input type="date" id="hist-pag-fecha-fin"></div>
+      <button class="btn btn-primary btn-sm" onclick="cargarHistorialPagadas()" style="margin-top:1.5rem">Buscar</button>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr>
+        <th>N° Factura</th><th>Proveedor</th><th>Monto</th><th>Emisión</th><th>Pago</th>
+      </tr></thead>
+      <tbody id="tbody-historial-pagadas"></tbody></table>
+    </div>
+    <div id="hist-pag-empty" class="empty" style="display:none">
+      <div class="empty-icon">🧾</div><h3>Sin facturas pagadas</h3><p>No hay registros en el período seleccionado</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-historial-pagadas')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ═══════════════════════════════════════════
 //  API CONFIG
@@ -548,10 +651,18 @@ async function api(method, path, body) {
     opts.body = JSON.stringify(body);
   }
   const res = await fetch(apiURL(path), opts);
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Error de conexión');
+  const contentType = res.headers.get('content-type') || '';
+
+  // Evita el error: "Unexpected token '<' ... is not valid JSON"
+  // cuando el backend devuelve HTML (por ejemplo, ruta incorrecta).
+  if (!contentType.includes('application/json')) {
+    const text = await res.text();
+    if (!res.ok) throw new Error((text || '').slice(0, 500) || 'Error de conexión');
+    throw new Error('Respuesta no-JSON del servidor');
   }
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Error de conexión');
   return data;
 }
 
@@ -563,6 +674,40 @@ function apiGET(path, params) {
 function apiPOST(path, body) { return api('POST', path, body); }
 function apiPUT(path, body) { return api('PUT', path, body); }
 function apiDELETE(path) { return api('DELETE', path); }
+
+let importCancelRequested = false;
+
+function showImportProgress(message, pct = 0, detail = '') {
+  const area = document.getElementById('import-progress-area');
+  if (!area) return;
+  importCancelRequested = false;
+  area.style.display = 'flex';
+  area.style.flexDirection = 'column';
+  document.getElementById('import-status-msg').textContent = message;
+  updateImportProgress(pct, detail);
+}
+
+function updateImportProgress(pct, detail = '') {
+  const fill = document.getElementById('import-bar-fill');
+  const pctText = document.getElementById('import-pct');
+  const details = document.getElementById('import-details');
+  if (fill) fill.style.width = `${Math.min(Math.max(pct, 0), 100)}%`;
+  if (pctText) pctText.textContent = `${Math.round(Math.min(Math.max(pct, 0), 100))}%`;
+  if (details) details.textContent = detail;
+}
+
+function hideImportProgress() {
+  const area = document.getElementById('import-progress-area');
+  if (!area) return;
+  area.style.display = 'none';
+  importCancelRequested = false;
+  updateImportProgress(0, '');
+}
+
+function cancelImport() {
+  importCancelRequested = true;
+  toast('Cancelando importación...', 'info');
+}
 
 // ═══════════════════════════════════════════
 //  AUTHENTICATION
@@ -617,7 +762,7 @@ async function initApp() {
   try {
     // Check health
     const health = await apiGET('/health');
-    document.getElementById('db-info').textContent = 'Turso: ' + (health.status || 'conectado');
+    document.getElementById('db-info').textContent = 'Supabase: ' + (health.status || 'conectado');
     
     document.getElementById('loading').style.display = 'none';
     document.getElementById('topbar').style.display = 'flex';
@@ -648,6 +793,7 @@ function switchTab(name, evt) {
   if (evt && evt.currentTarget) evt.currentTarget.classList.add('active');
   if (name === 'dashboard') renderDashboard();
   if (name === 'facturas') renderFacturas();
+  if (name === 'compras') renderListaCompras();
 }
 
 // ═══════════════════════════════════════════
@@ -787,9 +933,7 @@ async function renderInventario(lista) {
         <td><strong>${a.nombre}</strong>${a.descripcion?`<br><span style="font-size:12px;color:var(--text3)">${a.descripcion}</span>`:''}</td>
         <td><span class="badge dept-${a.departamento||'Ferretería'}">${a.departamento||''}</span></td>
         <td>${fmt(a.precio_costo||0)}</td>
-        <td>${fmt((a.precio_costo||0) * a.stock)}</td>
         <td>${fmt(a.precio_venta||0)}</td>
-        <td>${fmt((a.precio_venta||0) * a.stock)}</td>
         <td style="font-weight:600;color:${bajo?'var(--red)':'inherit'}">${a.stock} ${a.unidad||'u.'}</td>
         <td style="color:var(--text3)">${a.stock_min}</td>
         <td>${estadoHTML}</td>
@@ -982,6 +1126,12 @@ async function renderFacturas(lista) {
     const facts = lista || await apiGET('/facturas');
     const tbody = document.getElementById('tbody-fact');
     const empty = document.getElementById('fact-empty');
+
+    // Calcular total de facturas no pagadas
+    const total = facts.filter(f => f.estado !== 'pagada').reduce((sum, f) => sum + (f.monto || 0), 0);
+    const totalEl = document.getElementById('fact-total-val');
+    if (totalEl) totalEl.textContent = fmt(total);
+
     if (!facts.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
     empty.style.display='none';
     tbody.innerHTML = facts.map(f => {
@@ -1119,6 +1269,7 @@ async function importarExcel(input) {
   formData.append('file', file);
   
   try {
+    showImportProgress('Subiendo archivo...', 5, 'Esperando respuesta del servidor');
     const res = await fetch(apiURL('/importar-excel'), {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
@@ -1129,23 +1280,28 @@ async function importarExcel(input) {
       toast(`Importados: ${data.importados} artículos${data.errores ? ' · Errores: '+data.errores : ''}`, 'success');
       renderInventario();
       renderDashboard();
+      hideImportProgress();
     } else {
+      hideImportProgress();
       toast('Error al importar: ' + (data.error || 'desconocido'), 'error');
     }
   } catch(e) {
+    hideImportProgress();
     // Fallback: client-side import (same as before)
+    showImportProgress('Importando en el cliente...', 0, 'Procesando filas');
     const reader = new FileReader();
-    reader.onload = e2 => {
+    reader.onload = async e2 => {
       try {
         const wb = XLSX.read(e2.target.result, {type:'binary'});
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(ws);
         if (!rows.length) { toast('Archivo vacío','error'); return; }
-        
-        let ok=0, err=0;
-        rows.forEach(async r => {
+        let ok = 0, err = 0;
+        for (let index = 0; index < rows.length; index++) {
+          if (importCancelRequested) break;
+          const r = rows[index];
           const nombre = String(r['Nombre']||r['nombre']||'').trim();
-          if (!nombre) { err++; return; }
+          if (!nombre) { err++; updateImportProgress((index + 1) / rows.length * 100, `${index + 1}/${rows.length} filas`); continue; }
           const codigo = String(r['Código']||r['Codigo']||r['codigo']||'').trim();
           const dept = String(r['Departamento']||r['departamento']||'Ferretería').trim();
           const precio_costo = parseFloat(r['Precio de Costo']||r['PrecioCosto']||r['precio_costo']||r['precio']||0);
@@ -1165,15 +1321,165 @@ async function importarExcel(input) {
             }
             ok++;
           } catch(ex) { err++; }
-        });
-        toast(`Importados: ${ok} artículos${err?' · Errores: '+err:''}`, ok>0?'success':'error');
+          updateImportProgress((index + 1) / rows.length * 100, `${index + 1}/${rows.length} filas`);
+        }
+        if (importCancelRequested) {
+          toast('Importación cancelada', 'info');
+        } else {
+          toast(`Importados: ${ok} artículos${err ? ' · Errores: ' + err : ''}`, ok > 0 ? 'success' : 'error');
+        }
         renderInventario();
         renderDashboard();
+        hideImportProgress();
       } catch(e3) { toast('Error al leer el archivo Excel','error'); }
     };
     reader.readAsBinaryString(file);
   }
   input.value='';
+}
+
+// ═══════════════════════════════════════════
+//  LISTA DE COMPRAS
+// ═══════════════════════════════════════════
+
+async function renderListaCompras(lista) {
+  const deptFilter = document.getElementById('compra-filter-dept').value;
+  const searchFilter = document.getElementById('compra-search').value.toLowerCase();
+
+  try {
+    let items = lista || await apiGET('/lista-compras', deptFilter ? { departamento: deptFilter } : {});
+    
+    if (searchFilter) {
+      items = items.filter(i => i.nombre.toLowerCase().includes(searchFilter));
+    }
+
+    const tbody = document.getElementById('tbody-compras');
+    const empty = document.getElementById('compras-empty');
+    if(!items.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
+    empty.style.display='none';
+    tbody.innerHTML = items.map(i => {
+      const estado = (i.estado || 'pendiente').toLowerCase();
+      let stCls = '';
+      if (estado === 'recibido') stCls = 'status-recibido';
+      if (estado === 'faltante') stCls = 'status-faltante';
+      
+      return `<tr>
+        <td><strong>${i.nombre}</strong></td>
+        <td><span class="badge dept-${i.departamento||'Ferretería'}">${i.departamento||'Ferretería'}</span></td>
+        <td>${i.cantidad}</td>
+        <td><span class="badge ${stCls}">${estado.toUpperCase()}</span></td>
+        <td><div class="actions-cell">
+          <button class="btn btn-green btn-sm" onclick="cambiarEstadoCompra(${i.id},'recibido')">Llegó</button>
+          <button class="btn btn-danger btn-sm" onclick="cambiarEstadoCompra(${i.id},'faltante')">No llegó</button>
+          <button class="btn btn-secondary btn-sm" onclick="eliminarItemCompra(${i.id})">🗑</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  } catch(e) { toast('Error al cargar lista','error'); }
+}
+
+async function agregarAListaCompra() {
+  const nombre = document.getElementById('compra-nombre').value.trim();
+  const cantidad = parseInt(document.getElementById('compra-qty').value) || 1;
+  const departamento = document.getElementById('compra-dept').value;
+  if(!nombre) return toast('Nombre requerido','error');
+  try {
+    await apiPOST('/lista-compras', { nombre, cantidad, departamento });
+    document.getElementById('compra-nombre').value = '';
+    renderListaCompras();
+    toast('Agregado a la lista');
+  } catch(e) { toast('Error al agregar','error'); }
+}
+
+async function cambiarEstadoCompra(id, estado) {
+  await apiPUT(`/lista-compras/${id}`, { estado });
+  renderListaCompras();
+}
+
+async function eliminarItemCompra(id) {
+  await apiDELETE(`/lista-compras/${id}`);
+  renderListaCompras();
+}
+
+async function limpiarListaCompra() {
+  if(!confirm('¿Limpiar toda la lista?')) return;
+  await apiPOST('/lista-compras/limpiar');
+  renderListaCompras();
+}
+
+async function exportarListaCompraPDF() {
+  try {
+    const dept = document.getElementById('compra-export-dept').value;
+    const items = await apiGET('/lista-compras', dept ? { departamento: dept } : {});
+    if(!items.length) return toast('La lista está vacía','error');
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    doc.setFontSize(18); doc.setFont('helvetica','bold');
+    doc.text('Lista de Compras Urgentes', 14, 20);
+    doc.setFontSize(10); doc.setTextColor(100);
+    doc.text('Generado: ' + new Date().toLocaleString(), 14, 28);
+    
+    const rows = items.map(i => [
+      i.nombre,
+      i.cantidad,
+      (i.estado || 'pendiente').toUpperCase()
+    ]);
+    
+    doc.autoTable({
+      head: [['Artículo', 'Cantidad', 'Estado']],
+      body: rows,
+      startY: 35,
+      didParseCell: function(data) {
+        if (data.section === 'body' && data.column.index === 2) {
+          if (data.cell.raw === 'RECIBIDO') data.cell.styles.textColor = [45, 122, 79];
+          if (data.cell.raw === 'FALTANTE') data.cell.styles.textColor = [155, 32, 32];
+        }
+      }
+    });
+    
+    doc.save('lista_compras.pdf');
+    toast('PDF generado');
+  } catch(e) { toast('Error al generar PDF','error'); }
+}
+
+// ═══════════════════════════════════════════
+//  HISTORIAL FACTURAS PAGADAS
+// ═══════════════════════════════════════════
+
+function abrirModalHistorialPagadas() {
+  abrirModal('modal-historial-pagadas');
+  // Set default dates (last 30 days)
+  const hoy = new Date();
+  const hace30dias = new Date(hoy);
+  hace30dias.setDate(hoy.getDate() - 30);
+  document.getElementById('hist-pag-fecha-fin').value = hoy.toISOString().split('T')[0];
+  document.getElementById('hist-pag-fecha-inicio').value = hace30dias.toISOString().split('T')[0];
+  cargarHistorialPagadas();
+}
+
+async function cargarHistorialPagadas() {
+  const fechaInicio = document.getElementById('hist-pag-fecha-inicio').value;
+  const fechaFin = document.getElementById('hist-pag-fecha-fin').value;
+  const tbody = document.getElementById('tbody-historial-pagadas');
+  const empty = document.getElementById('hist-pag-empty');
+
+  try {
+    const params = { estado: 'pagada' };
+    if (fechaInicio) params.fecha_inicio = fechaInicio;
+    if (fechaFin) params.fecha_fin = fechaFin;
+
+    const facturas = await apiGET('/facturas', params);
+    
+    if (!facturas.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+    empty.style.display='none';
+    tbody.innerHTML = facturas.map(f => `<tr>
+      <td><strong>${f.numero}</strong></td>
+      <td>${f.empresa||'—'}</td>
+      <td style="font-weight:600">${fmt(f.monto)}</td>
+      <td>${f.fecha_emision||'—'}</td>
+      <td>${f.fecha_pago ? f.fecha_pago.split('T')[0] : '—'}</td>
+    </tr>`).join('');
+  } catch(e) { toast('Error al cargar historial: ' + e.message, 'error'); }
 }
 
 // ═══════════════════════════════════════════

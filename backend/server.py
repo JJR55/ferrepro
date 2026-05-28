@@ -1,6 +1,6 @@
 """
 FerrePro — Flask API Server
-Connects to Turso (SQLite in the cloud) and provides REST endpoints.
+Connects to Supabase/Postgres (or Turso legacy fallback) and provides REST endpoints.
 Deployable on Vercel as serverless functions.
 """
 import os
@@ -126,6 +126,39 @@ def create_articulo():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/articulos/batch", methods=["POST"])
+def create_articulos_batch():
+    data = request.get_json(silent=True) or []
+    if not isinstance(data, list) or not data:
+        return jsonify({"error": "Se requiere una lista de articulos"}), 400
+    sql_parts = []
+    params = []
+    for item in data:
+        # minimal validation
+        nombre = item.get("nombre")
+        if not nombre:
+            return jsonify({"error": "Cada articulo necesita 'nombre'"}), 400
+        sql_parts.append("INSERT INTO articulos (codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, descripcion, proveedor_id, unidad) VALUES (?,?,?,?,?,?,?,?,?,?);")
+        params.extend([
+            item.get("codigo", ""),
+            nombre,
+            item.get("departamento", "Ferretería"),
+            float(item.get("precio_costo", 0)),
+            float(item.get("precio_venta", 0)),
+            int(item.get("stock", 0)),
+            int(item.get("stock_min", 5)),
+            item.get("descripcion", ""),
+            item.get("proveedor_id"),
+            item.get("unidad", "u.")
+        ])
+    full_sql = "BEGIN TRANSACTION; " + " ".join(sql_parts) + " COMMIT;"
+    try:
+        db.execute(full_sql, params)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/articulos/<int:art_id>", methods=["PUT"])
 def update_articulo(art_id):
     data = request.get_json(silent=True) or {}
@@ -211,6 +244,37 @@ def create_proveedor():
     return jsonify({"ok": True})
 
 
+@app.route("/api/proveedores/batch", methods=["POST"])
+def create_proveedores_batch():
+    data = request.get_json(silent=True) or []
+    if not isinstance(data, list) or not data:
+        return jsonify({"error": "Se requiere una lista de proveedores"}), 400
+    sql_parts = []
+    params = []
+    for item in data:
+        empresa = item.get("empresa")
+        if not empresa:
+            return jsonify({"error": "Cada proveedor necesita 'empresa'"}), 400
+        sql_parts.append("INSERT INTO proveedores (empresa, contacto, telefono, email, departamento, direccion, rnc, dias_credito, notas) VALUES (?,?,?,?,?,?,?,?,?);")
+        params.extend([
+            empresa,
+            item.get("contacto", ""),
+            item.get("telefono", ""),
+            item.get("email", ""),
+            item.get("departamento", ""),
+            item.get("direccion", ""),
+            item.get("rnc", ""),
+            int(item.get("dias_credito", 30)),
+            item.get("notas", "")
+        ])
+    full_sql = "BEGIN TRANSACTION; " + " ".join(sql_parts) + " COMMIT;"
+    try:
+        db.execute(full_sql, params)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/proveedores/<int:prov_id>", methods=["PUT"])
 def update_proveedor(prov_id):
     data = request.get_json(silent=True) or {}
@@ -261,6 +325,12 @@ def get_facturas():
     if estado:
         conds.append("f.estado = ?")
         params.append(estado)
+    if fecha_inicio:
+        conds.append("f.fecha_emision >= ?")
+        params.append(fecha_inicio)
+    if fecha_fin:
+        conds.append("f.fecha_emision <= ?")
+        params.append(fecha_fin)
     
     if conds:
         sql += " WHERE " + " AND ".join(conds)
@@ -299,6 +369,37 @@ def create_factura():
     return jsonify({"ok": True})
 
 
+@app.route("/api/facturas/batch", methods=["POST"])
+def create_facturas_batch():
+    data = request.get_json(silent=True) or []
+    if not isinstance(data, list) or not data:
+        return jsonify({"error": "Se requiere una lista de facturas"}), 400
+    sql_parts = []
+    params = []
+    for item in data:
+        numero = item.get("numero")
+        fecha_emision = item.get("fecha_emision")
+        fecha_vencimiento = item.get("fecha_vencimiento")
+        if not numero or not fecha_emision or not fecha_vencimiento:
+            return jsonify({"error": "Cada factura requiere numero, fecha_emision y fecha_vencimiento"}), 400
+        sql_parts.append("INSERT INTO facturas (numero, proveedor_id, monto, fecha_emision, fecha_vencimiento, estado, descripcion) VALUES (?,?,?,?,?,?,?);")
+        params.extend([
+            numero,
+            item.get("proveedor_id"),
+            float(item.get("monto", 0)),
+            fecha_emision,
+            fecha_vencimiento,
+            item.get("estado", "pendiente"),
+            item.get("descripcion", "")
+        ])
+    full_sql = "BEGIN TRANSACTION; " + " ".join(sql_parts) + " COMMIT;"
+    try:
+        db.execute(full_sql, params)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/facturas/<int:fact_id>", methods=["PUT"])
 def update_factura(fact_id):
     data = request.get_json(silent=True) or {}
@@ -319,7 +420,54 @@ def update_factura(fact_id):
 
 @app.route("/api/facturas/<int:fact_id>/pagar", methods=["POST"])
 def pagar_factura(fact_id):
-    db.execute("UPDATE facturas SET estado='pagada' WHERE id=?", [fact_id])
+    db.execute("UPDATE facturas SET estado='pagada', fecha_pago=? WHERE id=?", [datetime.now().isoformat(), fact_id])
+    return jsonify({"ok": True})
+
+
+@app.route("/api/lista-compras", methods=["GET"])
+def get_lista_compras():
+    departamento = request.args.get("departamento", "")
+    sql = "SELECT id, nombre, COALESCE(cantidad, 1) AS cantidad, departamento, COALESCE(estado, 'pendiente') AS estado, creado_at FROM lista_compras"
+    params = []
+    if departamento:
+        sql += " WHERE departamento = ?"
+        params.append(departamento)
+    sql += " ORDER BY id DESC"
+    items = db.query(sql, params if params else None)
+    return jsonify(items)
+
+
+@app.route("/api/lista-compras", methods=["POST"])
+def create_lista_compra():
+    data = request.get_json(silent=True) or {}
+    if not data.get("nombre"):
+        return jsonify({"error": "Nombre requerido"}), 400
+    cantidad = int(data.get("cantidad", 1))
+    departamento = data.get("departamento", "Ferretería")
+    sql = "INSERT INTO lista_compras (nombre, cantidad, departamento, estado, creado_at) VALUES (?,?,?,?,?)"
+    db.execute(sql, [data["nombre"], cantidad, departamento, "pendiente", datetime.utcnow().isoformat()])
+    return jsonify({"ok": True})
+
+
+@app.route("/api/lista-compras/<int:item_id>", methods=["PUT"])
+def update_lista_compra(item_id):
+    data = request.get_json(silent=True) or {}
+    estado = data.get("estado")
+    if not estado:
+        return jsonify({"error": "Estado requerido"}), 400
+    db.execute("UPDATE lista_compras SET estado=? WHERE id=?", [estado, item_id])
+    return jsonify({"ok": True})
+
+
+@app.route("/api/lista-compras/<int:item_id>", methods=["DELETE"])
+def delete_lista_compra(item_id):
+    db.execute("DELETE FROM lista_compras WHERE id=?", [item_id])
+    return jsonify({"ok": True})
+
+
+@app.route("/api/lista-compras/limpiar", methods=["POST"])
+def limpiar_lista_compras():
+    db.execute("DELETE FROM lista_compras")
     return jsonify({"ok": True})
 
 
@@ -693,10 +841,10 @@ def health():
     try:
         tables = db.init_db()
         return jsonify({
-            "status": "ok",
-            "tables": [t["name"] for t in tables] if tables else [],
-            "turso_url": db.TURSO_DATABASE_URL[:20] + "..." if db.TURSO_DATABASE_URL else "not configured"
-        })
+                "status": "ok",
+                "tables": [t["name"] for t in tables] if tables else [],
+                "db_url": db.SUPABASE_DATABASE_URL[:20] + "..." if db.SUPABASE_DATABASE_URL else "not configured"
+            })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 
