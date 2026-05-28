@@ -98,7 +98,8 @@ def init_db():
         codigo TEXT UNIQUE, nombre TEXT, departamento TEXT,
         precio_costo DOUBLE PRECISION DEFAULT 0, precio_venta DOUBLE PRECISION DEFAULT 0,
         stock INTEGER DEFAULT 0, stock_min INTEGER DEFAULT 5,
-        descripcion TEXT, proveedor_id INTEGER, unidad TEXT DEFAULT 'u.'
+        descripcion TEXT, proveedor_id INTEGER, unidad TEXT DEFAULT 'u.',
+        codigo_barras TEXT DEFAULT ''
     )""" % pk_type)
 
     execute("""CREATE TABLE IF NOT EXISTS proveedores (
@@ -127,8 +128,35 @@ def init_db():
         cantidad INTEGER DEFAULT 1,
         departamento TEXT,
         estado TEXT DEFAULT 'pendiente',
-        creado_at TIMESTAMPTZ
+        encargado TEXT DEFAULT '',
+        creado_at TIMESTAMPTZ,
+        completado_at TIMESTAMPTZ
     )""" % pk_type)
+
+    execute("""CREATE TABLE IF NOT EXISTS movimientos_inventario (
+        id %s,
+        articulo_id INTEGER NOT NULL,
+        tipo TEXT NOT NULL CHECK (tipo IN ('entrada', 'salida', 'ajuste')),
+        cantidad INTEGER NOT NULL,
+        stock_anterior INTEGER NOT NULL,
+        stock_nuevo INTEGER NOT NULL,
+        referencia TEXT DEFAULT '',
+        motivo TEXT DEFAULT '',
+        creado_at TIMESTAMPTZ DEFAULT NOW()
+    )""" % pk_type)
+
+    # Add codigo_barras column if it doesn't exist (for existing databases)
+    try:
+        execute("ALTER TABLE articulos ADD COLUMN IF NOT EXISTS codigo_barras TEXT DEFAULT ''")
+    except Exception:
+        pass  # Column already exists or not supported
+
+    # Asegurar que las columnas encargado y completado_at existan en lista_compras
+    try:
+        execute("ALTER TABLE lista_compras ADD COLUMN IF NOT EXISTS encargado TEXT DEFAULT ''")
+        execute("ALTER TABLE lista_compras ADD COLUMN IF NOT EXISTS completado_at TIMESTAMPTZ")
+    except Exception:
+        pass
 
     # Verify tables exist
     if using_supabase:

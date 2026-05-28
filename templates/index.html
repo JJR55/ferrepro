@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -256,6 +257,8 @@ tbody tr:hover{background:var(--bg)}
   <button class="tab-btn" onclick="switchTab('proveedores', event)">🏭 Proveedores</button>
   <button class="tab-btn" onclick="switchTab('facturas', event)">🧾 Cuentas por Pagar</button>
   <button class="tab-btn" onclick="switchTab('compras', event)">🛒 Lista de Compras</button>
+  <button class="tab-btn" onclick="switchTab('movimientos', event)">📦 Entradas/Salidas</button>
+  <button class="tab-btn" onclick="switchTab('barcode', event)">🏷️ Código Barras</button>
 </div>
 
 <div id="app" style="display:none"> 
@@ -419,11 +422,15 @@ tbody tr:hover{background:var(--bg)}
           </select>
         </div>
         <div class="form-group"><label>Cantidad a comprar</label><input type="number" id="compra-qty" value="1" min="1"></div>
+        <div class="form-group"><label>Encargado</label>
+          <input type="text" id="compra-encargado" placeholder="Nombre de quien lo encarga">
+        </div>
       </div>
       <div style="margin-top:1rem;display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="agregarAListaCompra()">+ Agregar a la lista</button>
         <button class="btn btn-secondary" onclick="exportarListaCompraPDF()">📄 Exportar PDF</button>
         <button class="btn btn-danger" onclick="limpiarListaCompra()">🗑 Limpiar Lista</button>
+        <button class="btn btn-secondary" onclick="abrirModalHistorialCompras()">📜 Historial</button>
       </div>
     </div>
     <div class="toolbar">
@@ -454,8 +461,142 @@ tbody tr:hover{background:var(--bg)}
   </div>
 </div>
 
-<!-- TOAST -->
-<div id="toast"></div>
+  <!-- ENTRADAS / SALIDAS DE INVENTARIO -->
+  <div id="tab-movimientos" class="tab-pane">
+    <h2 class="section-title">📦 Entradas y Salidas de Inventario</h2>
+    <div class="card" style="margin-bottom:1.5rem">
+      <div class="form-grid">
+        <div class="form-group" style="position:relative">
+          <label>Buscar Artículo *</label>
+          <input type="text" id="mov-search" placeholder="Buscar por nombre, código o escanear código de barras…" autocomplete="off" oninput="buscarArticuloMovimiento()" onfocus="buscarArticuloMovimiento()" onblur="setTimeout(()=>document.getElementById('mov-autocomplete').style.display='none',200)">
+          <div id="mov-autocomplete" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow2);z-index:50;max-height:220px;overflow-y:auto"></div>
+          <input type="hidden" id="mov-articulo-id">
+        </div>
+        <div class="form-group"><label>Tipo de Movimiento</label>
+          <select id="mov-tipo">
+            <option value="entrada">📥 Entrada (aumentar stock)</option>
+            <option value="salida">📤 Salida (disminuir stock)</option>
+            <option value="ajuste">⚖️ Ajuste (fijar stock)</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Cantidad *</label>
+          <input type="number" id="mov-cantidad" min="1" value="1">
+          <small style="color:var(--text3)" id="mov-stock-actual">Stock actual: —</small>
+        </div>
+        <div class="form-group"><label>Referencia / Factura</label>
+          <input type="text" id="mov-referencia" placeholder="N° factura, orden, etc.">
+        </div>
+        <div class="form-group span2"><label>Motivo (opcional)</label>
+          <input type="text" id="mov-motivo" placeholder="Compra a proveedor, venta, ajuste manual…">
+        </div>
+      </div>
+      <div style="margin-top:1rem">
+        <button class="btn btn-primary" onclick="registrarMovimiento()">💾 Registrar Movimiento</button>
+      </div>
+    </div>
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:1rem">Últimos Movimientos</h3>
+    <div class="toolbar">
+      <select id="mov-filtro-tipo" onchange="renderMovimientos()">
+        <option value="">Todos los tipos</option>
+        <option value="entrada">Entradas</option>
+        <option value="salida">Salidas</option>
+        <option value="ajuste">Ajustes</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr>
+        <th>Fecha</th><th>Artículo</th><th>Código</th><th>Tipo</th><th>Cantidad</th><th>Stock Anterior</th><th>Stock Nuevo</th><th>Referencia</th>
+      </tr></thead>
+      <tbody id="tbody-mov"></tbody></table>
+    </div>
+    <div id="mov-empty" class="empty" style="display:none">
+      <div class="empty-icon">📦</div><h3>Sin movimientos</h3><p>Realiza entradas o salidas de inventario</p>
+    </div>
+  </div>
+
+  <!-- CÓDIGO DE BARRAS -->
+  <div id="tab-barcode" class="tab-pane">
+    <h2 class="section-title">🏷️ Código de Barras</h2>
+    <div class="card" style="margin-bottom:1.5rem">
+      <div class="form-grid">
+        <div class="form-group" style="position:relative">
+          <label>Buscar Artículo *</label>
+          <input type="text" id="bar-search" placeholder="Buscar por nombre, código o escanear…" autocomplete="off" oninput="buscarArticuloBarcode()" onfocus="buscarArticuloBarcode()" onblur="setTimeout(()=>document.getElementById('bar-autocomplete').style.display='none',200)">
+          <div id="bar-autocomplete" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow2);z-index:50;max-height:220px;overflow-y:auto"></div>
+          <input type="hidden" id="bar-articulo-id">
+        </div>
+        <div class="form-group"><label>Asignar Código de Barras</label>
+          <input type="text" id="bar-codigo" placeholder="Código de barras (o deja vacío para auto-generar)">
+          <button class="btn btn-secondary btn-sm" onclick="generarCodigoBarrasAleatorio()" style="margin-top:6px">🎲 Generar aleatorio</button>
+        </div>
+      </div>
+      <div style="margin-top:1rem;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="asignarCodigoBarras()">💾 Asignar Código</button>
+        <button class="btn btn-secondary" onclick="imprimirEtiqueta()">🖨️ Imprimir Etiqueta</button>
+        <button class="btn btn-secondary" onclick="buscarPorScanner()">📷 Buscar por escáner</button>
+      </div>
+      <div id="barcode-preview" style="margin-top:1.5rem;text-align:center;display:none">
+        <div style="background:#fff;padding:1.5rem;border-radius:var(--r2);border:1px solid var(--border);display:inline-block">
+          <svg id="barcode-svg"></svg>
+          <div style="margin-top:8px;font-size:12px;color:var(--text2)" id="barcode-info"></div>
+        </div>
+      </div>
+    </div>
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:1rem">Artículos con Código de Barras</h3>
+    <div class="table-wrap">
+      <table><thead><tr>
+        <th>Código</th><th>Nombre</th><th>Departamento</th><th>Código Barras</th><th>Stock</th>
+      </tr></thead>
+      <tbody id="tbody-barcode"></tbody>
+    </table>
+    </div>
+    <div id="barcode-empty" class="empty" style="display:none">
+      <div class="empty-icon">🏷️</div><h3>Sin códigos de barras asignados</h3><p>Asigna códigos de barras a tus artículos</p>
+    </div>
+  </div>
+
+  <!-- MODAL HISTORIAL DE COMPRAS -->
+  <div class="modal-overlay" id="modal-historial-compras">
+    <div class="modal" style="max-width:800px">
+      <h3 class="modal-title">📜 Historial de Compras Recibidas</h3>
+      <div class="toolbar" style="margin-bottom:1rem">
+        <div class="form-group" style="flex:1">
+          <label>Desde</label><input type="date" id="hist-comp-fecha-inicio">
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Hasta</label><input type="date" id="hist-comp-fecha-fin">
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Departamento</label>
+          <select id="hist-comp-dept">
+            <option value="">Todos</option>
+            <option>Repuesto</option><option>Ferretería</option>
+            <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="cargarHistorialCompras()" style="margin-top:1.5rem">Buscar</button>
+      </div>
+      <div class="table-wrap">
+        <table><thead><tr>
+          <th>Artículo</th><th>Departamento</th><th>Cantidad</th><th>Encargado</th><th>Recibido</th>
+        </tr></thead>
+        <tbody id="tbody-historial-compras"></tbody>
+      </table>
+      </div>
+      <div id="hist-comp-empty" class="empty" style="display:none">
+        <div class="empty-icon">📜</div><h3>Sin compras recibidas</h3><p>Los artículos marcados como "Llegó" aparecerán aquí</p>
+      </div>
+      <div style="text-align:right; margin-top:15px; padding-right:10px;">
+        <strong>Total recibidos: <span id="hist-comp-total">0</span></strong>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="cerrarModal('modal-historial-compras')">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast"></div>
 
 <!-- MODAL ARTÍCULO -->
 <div class="modal-overlay" id="modal-articulo">
@@ -810,6 +951,8 @@ function switchTab(name, evt) {
   document.getElementById('tab-' + name).classList.add('active');
   if (evt && evt.currentTarget) evt.currentTarget.classList.add('active');
   if (name === 'dashboard') renderDashboard();
+  if (name === 'movimientos') renderMovimientos();
+  if (name === 'barcode') renderBarcodeList();
   if (name === 'facturas') renderFacturas();
   if (name === 'compras') renderListaCompras();
 }
@@ -1509,13 +1652,58 @@ async function agregarAListaCompra() {
   const nombre = document.getElementById('compra-nombre').value.trim();
   const cantidad = parseInt(document.getElementById('compra-qty').value) || 1;
   const departamento = document.getElementById('compra-dept').value;
+  const encargado = document.getElementById('compra-encargado').value.trim();
   if(!nombre) return toast('Nombre requerido','error');
   try {
-    await apiPOST('/lista-compras', { nombre, cantidad, departamento });
+    await apiPOST('/lista-compras', { nombre, cantidad, departamento, encargado });
     document.getElementById('compra-nombre').value = '';
+    document.getElementById('compra-encargado').value = '';
     renderListaCompras();
     toast('Agregado a la lista');
   } catch(e) { toast('Error al agregar','error'); }
+}
+
+// ═══════════════════════════════════════════
+//  HISTORIAL DE COMPRAS
+// ═══════════════════════════════════════════
+
+function abrirModalHistorialCompras() {
+  abrirModal('modal-historial-compras');
+  const hoy = new Date();
+  const hace30dias = new Date(hoy);
+  hace30dias.setDate(hoy.getDate() - 30);
+  document.getElementById('hist-comp-fecha-fin').value = hoy.toISOString().split('T')[0];
+  document.getElementById('hist-comp-fecha-inicio').value = hace30dias.toISOString().split('T')[0];
+  cargarHistorialCompras();
+}
+
+async function cargarHistorialCompras() {
+  const fechaInicio = document.getElementById('hist-comp-fecha-inicio').value;
+  const fechaFin = document.getElementById('hist-comp-fecha-fin').value;
+  const dept = document.getElementById('hist-comp-dept').value;
+  const tbody = document.getElementById('tbody-historial-compras');
+  const empty = document.getElementById('hist-comp-empty');
+
+  try {
+    let items = await apiGET('/lista-compras', { filtro: 'historial' });
+    if (dept) items = items.filter(i => i.departamento === dept);
+    
+    const total = items.length;
+    document.getElementById('hist-comp-total').textContent = total;
+    
+    if (!items.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+    empty.style.display='none';
+    tbody.innerHTML = items.map(i => {
+      const fecha = i.completado_at ? new Date(i.completado_at).toLocaleDateString() : '';
+      return `<tr>
+        <td><strong>${i.nombre}</strong></td>
+        <td><span class="badge dept-${i.departamento||'Ferretería'}">${i.departamento||'Ferretería'}</span></td>
+        <td>${i.cantidad}</td>
+        <td>${i.encargado || '—'}</td>
+        <td><span class="badge badge-ok">${fecha}</span></td>
+      </tr>`;
+    }).join('');
+  } catch(e) { toast('Error al cargar historial: ' + e.message, 'error'); }
 }
 
 async function cambiarEstadoCompra(id, estado) {
@@ -1974,6 +2162,191 @@ function restaurarBackupArchivo(input) {
     progressEl.classList.remove('active');
     input.value = '';
   });
+}
+
+// ═══════════════════════════════════════════
+//  MOVIMIENTOS DE INVENTARIO
+// ═══════════════════════════════════════════
+
+let _movTimeout = null;
+
+async function buscarArticuloMovimiento() {
+  const q = document.getElementById('mov-search').value.trim().toLowerCase();
+  const box = document.getElementById('mov-autocomplete');
+  if (q.length < 1) { box.style.display = 'none'; return; }
+  clearTimeout(_movTimeout);
+  _movTimeout = setTimeout(async () => {
+    try {
+      const arts = await apiGET('/articulos', { search: q });
+      if (!arts.length) { box.style.display = 'none'; return; }
+      box.innerHTML = arts.slice(0, 10).map(a => `<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"
+        onmousedown="seleccionarMovimiento(${a.id},'${a.nombre.replace(/'/g, "\\'")}',${a.stock})">
+        <div><strong style="font-size:13px">${a.nombre}</strong></div>
+        <div><span style="font-size:11px;color:var(--text3)">Stock: ${a.stock} · ${a.codigo||''}</span></div>
+      </div>`).join('');
+      box.style.display = 'block';
+    } catch(e) {}
+  }, 200);
+}
+
+function seleccionarMovimiento(id, nombre, stock) {
+  document.getElementById('mov-search').value = nombre;
+  document.getElementById('mov-articulo-id').value = id;
+  document.getElementById('mov-autocomplete').style.display = 'none';
+  document.getElementById('mov-stock-actual').textContent = `Stock actual: ${stock}`;
+  document.getElementById('mov-cantidad').focus();
+}
+
+async function registrarMovimiento() {
+  const articulo_id = document.getElementById('mov-articulo-id').value;
+  const tipo = document.getElementById('mov-tipo').value;
+  const cantidad = parseInt(document.getElementById('mov-cantidad').value) || 1;
+  const referencia = document.getElementById('mov-referencia').value.trim();
+  const motivo = document.getElementById('mov-motivo').value.trim();
+  if (!articulo_id) return toast('Busca y selecciona un artículo primero', 'error');
+  if (tipo === 'ajuste' && !confirm('¿Estás seguro de ajustar el stock al valor exacto?')) return;
+  try {
+    const res = await apiPOST('/movimientos', { articulo_id: parseInt(articulo_id), tipo, cantidad, referencia, motivo });
+    if (res.ok) {
+      toast(`Movimiento registrado: Stock ${res.stock_anterior} → ${res.stock_nuevo}`, 'success');
+      document.getElementById('mov-search').value = '';
+      document.getElementById('mov-articulo-id').value = '';
+      document.getElementById('mov-cantidad').value = '1';
+      document.getElementById('mov-referencia').value = '';
+      document.getElementById('mov-motivo').value = '';
+      document.getElementById('mov-stock-actual').textContent = 'Stock actual: —';
+      renderMovimientos();
+    }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function renderMovimientos() {
+  const tipo = document.getElementById('mov-filtro-tipo').value;
+  try {
+    const params = {};
+    if (tipo) params.tipo = tipo;
+    const movs = await apiGET('/movimientos', params);
+    const tbody = document.getElementById('tbody-mov');
+    const empty = document.getElementById('mov-empty');
+    if (!movs.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+    empty.style.display='none';
+    tbody.innerHTML = movs.map(m => {
+      const tipoCls = m.tipo === 'entrada' ? 'badge-ok' : m.tipo === 'salida' ? 'badge-venc' : 'badge-warn';
+      const tipoIcon = m.tipo === 'entrada' ? '📥' : m.tipo === 'salida' ? '📤' : '⚖️';
+      return `<tr>
+        <td style="font-size:12px;color:var(--text2)">${m.creado_at ? new Date(m.creado_at).toLocaleString() : ''}</td>
+        <td><strong>${m.articulo_nombre||''}</strong></td>
+        <td><code style="font-size:12px">${m.articulo_codigo||''}</code></td>
+        <td><span class="badge ${tipoCls}">${tipoIcon} ${m.tipo}</span></td>
+        <td style="font-weight:600">${m.cantidad}</td>
+        <td>${m.stock_anterior}</td>
+        <td style="font-weight:600">${m.stock_nuevo}</td>
+        <td style="font-size:12px;color:var(--text2)">${m.referencia||''}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) { toast('Error al cargar movimientos: ' + e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════════
+//  CÓDIGO DE BARRAS
+// ═══════════════════════════════════════════
+
+let _barTimeout = null;
+
+async function buscarArticuloBarcode() {
+  const q = document.getElementById('bar-search').value.trim().toLowerCase();
+  const box = document.getElementById('bar-autocomplete');
+  if (q.length < 1) { box.style.display = 'none'; return; }
+  clearTimeout(_barTimeout);
+  _barTimeout = setTimeout(async () => {
+    try {
+      const arts = await apiGET('/articulos', { search: q });
+      if (!arts.length) { box.style.display = 'none'; return; }
+      box.innerHTML = arts.slice(0, 10).map(a => `<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"
+        onmousedown="seleccionarBarcode(${a.id},'${a.nombre.replace(/'/g, "\\'")}','${(a.codigo_barras||'').replace(/'/g, "\\'")}')">
+        <div><strong style="font-size:13px">${a.nombre}</strong></div>
+        <div><span style="font-size:11px;color:var(--text3)">${a.codigo_barras ? '🔖 ' + a.codigo_barras : 'Sin código'}</span></div>
+      </div>`).join('');
+      box.style.display = 'block';
+    } catch(e) {}
+  }, 200);
+}
+
+function seleccionarBarcode(id, nombre, codigoBarras) {
+  document.getElementById('bar-search').value = nombre;
+  document.getElementById('bar-articulo-id').value = id;
+  document.getElementById('bar-codigo').value = codigoBarras;
+  document.getElementById('bar-autocomplete').style.display = 'none';
+  if (codigoBarras) generarVistaPreviaBarras(codigoBarras, nombre);
+}
+
+function generarCodigoBarrasAleatorio() {
+  const rand = '2' + Math.random().toString(10).substring(2, 12);
+  document.getElementById('bar-codigo').value = rand;
+  const nombre = document.getElementById('bar-search').value;
+  generarVistaPreviaBarras(rand, nombre);
+}
+
+function generarVistaPreviaBarras(codigo, nombre) {
+  try {
+    JsBarcode('#barcode-svg', codigo, { format: 'CODE128', width: 2, height: 60, displayValue: true, fontSize: 14, margin: 10 });
+    document.getElementById('barcode-preview').style.display = 'block';
+    document.getElementById('barcode-info').textContent = `${nombre || ''} · Código: ${codigo}`;
+  } catch(e) { /* silencio */ }
+}
+
+async function asignarCodigoBarras() {
+  const id = document.getElementById('bar-articulo-id').value;
+  const codigo = document.getElementById('bar-codigo').value.trim();
+  if (!id) return toast('Busca y selecciona un artículo primero', 'error');
+  if (!codigo) return toast('Ingresa o genera un código de barras', 'error');
+  try {
+    await apiPOST(`/articulos/${id}/barcode`, { codigo_barras: codigo });
+    toast('Código de barras asignado', 'success');
+    generarVistaPreviaBarras(codigo, document.getElementById('bar-search').value);
+    renderBarcodeList();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+function imprimirEtiqueta() {
+  const svg = document.getElementById('barcode-svg');
+  if (!svg || svg.innerHTML === '') return toast('Primero selecciona un artículo con código de barras', 'error');
+  const win = window.open('', '_blank');
+  win.document.write(`<html><head><title>Etiqueta FerrePro</title><style>body{margin:0;padding:20px;text-align:center}@media print{@page{margin:0}}button{display:none}@media screen{button{display:block;margin:20px auto;padding:10px 20px}}</style></head><body>${svg.outerHTML}<br><p style="font-family:sans-serif;font-size:12px;color:#666">${document.getElementById('barcode-info').textContent}</p><button onclick="window.print()">🖨️ Imprimir</button></body></html>`);
+  win.document.close();
+}
+
+async function buscarPorScanner() {
+  const codigo = prompt('Escanea o escribe el código de barras:');
+  if (!codigo) return;
+  try {
+    const art = await apiGET('/articulos/buscar-por-barras', { codigo });
+    document.getElementById('bar-search').value = art.nombre;
+    document.getElementById('bar-articulo-id').value = art.id;
+    document.getElementById('bar-codigo').value = art.codigo_barras || codigo;
+    generarVistaPreviaBarras(art.codigo_barras || codigo, art.nombre);
+    toast('Artículo encontrado: ' + art.nombre, 'success');
+  } catch(e) {
+    toast('Artículo no encontrado: ' + e.message, 'error');
+  }
+}
+
+async function renderBarcodeList() {
+  try {
+    const arts = await apiGET('/articulos');
+    const conBarcode = arts.filter(a => a.codigo_barras && a.codigo_barras.trim());
+    const tbody = document.getElementById('tbody-barcode');
+    const empty = document.getElementById('barcode-empty');
+    if (!conBarcode.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+    empty.style.display='none';
+    tbody.innerHTML = conBarcode.map(a => `<tr>
+      <td><code style="font-size:12px">${a.codigo||''}</code></td>
+      <td><strong>${a.nombre}</strong></td>
+      <td><span class="badge dept-${a.departamento||'Ferretería'}">${a.departamento||''}</span></td>
+      <td><code style="font-size:12px;background:var(--accent-bg);padding:2px 6px;border-radius:4px">${a.codigo_barras}</code></td>
+      <td style="font-weight:600;color:${(a.stock||0) <= (a.stock_min||0) ? 'var(--red)' : 'inherit'}">${a.stock||0} ${a.unidad||'u.'}</td>
+    </tr>`).join('');
+  } catch(e) { toast('Error al cargar: ' + e.message, 'error'); }
 }
 
 // ═══════════════════════════════════════════

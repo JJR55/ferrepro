@@ -434,11 +434,21 @@ def pagar_factura(fact_id):
 @app.route("/api/lista-compras", methods=["GET"])
 def get_lista_compras():
     departamento = request.args.get("departamento", "")
-    sql = "SELECT id, nombre, COALESCE(cantidad, 1) AS cantidad, departamento, COALESCE(estado, 'pendiente') AS estado, creado_at FROM lista_compras"
+    filtro = request.args.get("filtro", "")
+    sql = "SELECT id, nombre, COALESCE(cantidad, 1) AS cantidad, departamento, COALESCE(estado, 'pendiente') AS estado, COALESCE(encargado, '') AS encargado, creado_at, completado_at FROM lista_compras"
     params = []
+    conds = []
+    if filtro == "historial":
+        conds.append("estado IN ('recibido', 'faltante')")
+    elif not filtro:
+        conds.append("estado = 'pendiente'")
+    
     if departamento:
-        sql += " WHERE departamento = ?"
+        conds.append("departamento = ?")
         params.append(departamento)
+    
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
     sql += " ORDER BY id DESC"
     items = db.query(sql, params if params else None)
     return jsonify(items)
@@ -451,8 +461,9 @@ def create_lista_compra():
         return jsonify({"error": "Nombre requerido"}), 400
     cantidad = int(data.get("cantidad", 1))
     departamento = data.get("departamento", "Ferretería")
-    sql = "INSERT INTO lista_compras (nombre, cantidad, departamento, estado, creado_at) VALUES (?,?,?,?,?)"
-    db.execute(sql, [data["nombre"], cantidad, departamento, "pendiente", datetime.utcnow().isoformat()])
+    encargado = data.get("encargado", "")
+    sql = "INSERT INTO lista_compras (nombre, cantidad, departamento, estado, encargado, creado_at) VALUES (?,?,?,?,?,?)"
+    db.execute(sql, [data["nombre"], cantidad, departamento, "pendiente", encargado, datetime.utcnow().isoformat()])
     return jsonify({"ok": True})
 
 
@@ -462,7 +473,11 @@ def update_lista_compra(item_id):
     estado = data.get("estado")
     if not estado:
         return jsonify({"error": "Estado requerido"}), 400
-    db.execute("UPDATE lista_compras SET estado=? WHERE id=?", [estado, item_id])
+    
+    if estado in ['recibido', 'faltante']:
+        db.execute("UPDATE lista_compras SET estado=?, completado_at=? WHERE id=?", [estado, datetime.utcnow().isoformat(), item_id])
+    else:
+        db.execute("UPDATE lista_compras SET estado=? WHERE id=?", [estado, item_id])
     return jsonify({"ok": True})
 
 
