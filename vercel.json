@@ -15,9 +15,5 @@
       "src": "/(.*)",
       "dest": "api/index.py"
     }
-  ],
-  "env": {
-    "SUPABASE_DATABASE_URL": "@supabase_url",
-    "ADMIN_PASS": "@admin_pass"
-  }
+  ]
 }
