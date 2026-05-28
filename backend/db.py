@@ -35,19 +35,23 @@ class SupabaseClient:
     def execute(self, sql, params=None):
         if SUPABASE_DEBUG:
             print(f"[Supabase] SQL: {sql} | params: {params}")
-        with psycopg.connect(self.conninfo, autocommit=True) as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                # Compatibilidad: Postgres usa %s en lugar de ? para parámetros
-                if params:
-                    sql = sql.replace("?", "%s")
-                if params is None:
-                    cur.execute(sql)
-                else:
-                    cur.execute(sql, params)
-                if cur.description:
-                    rows = cur.fetchall()
-                    return [dict(r) for r in rows]
-                return []
+        try:
+            with psycopg.connect(self.conninfo, autocommit=True, connect_timeout=10) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    # Compatibilidad: Postgres usa %s en lugar de ? para parámetros
+                    if params:
+                        sql = sql.replace("?", "%s")
+                    if params is None:
+                        cur.execute(sql)
+                    else:
+                        cur.execute(sql, params)
+                    if cur.description:
+                        rows = cur.fetchall()
+                        return [dict(r) for r in rows]
+                    return []
+        except Exception as e:
+            print(f"[Supabase] Connection error: {e}")
+            raise
 
     def execute_raw(self, sql, params=None):
         self.execute(sql, params)
@@ -64,8 +68,8 @@ def get_client():
             raise Exception("SUPABASE_DATABASE_URL is not configured.")
         _client = SupabaseClient(SUPABASE_DATABASE_URL)
         print("[DB] Using Supabase Postgres")
-        else:
-            raise Exception("No database provider configured. Set SUPABASE_DATABASE_URL or TURSO_DATABASE_URL.")
+    if _client is None:
+        raise Exception("No database provider configured. Set SUPABASE_DATABASE_URL.")
     return _client
 
 

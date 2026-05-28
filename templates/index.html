@@ -232,7 +232,7 @@ tbody tr:hover{background:var(--bg)}
   </div>
 </div>
 
-<div id="login-screen">
+<div id="login-screen" style="display:none;">
   <div class="login-card">
     <h2>Iniciar Sesión</h2>
     <div class="login-group">
@@ -258,7 +258,7 @@ tbody tr:hover{background:var(--bg)}
   <button class="tab-btn" onclick="switchTab('compras', event)">🛒 Lista de Compras</button>
 </div>
 
-<div id="app" style="display:none">
+<div id="app" style="display:none"> 
 
   <!-- PANEL PRINCIPAL -->
   <div id="tab-dashboard" class="tab-pane active">
@@ -407,7 +407,11 @@ tbody tr:hover{background:var(--bg)}
     <h2 class="section-title">Lista de Compras Urgentes</h2>
     <div class="card" style="margin-bottom:1.5rem">
       <div class="form-grid">
-        <div class="form-group"><label>Nombre del Artículo *</label><input type="text" id="compra-nombre" placeholder="Ej: Codo PVC 1/2"></div>
+        <div class="form-group" style="position:relative">
+          <label>Nombre del Artículo *</label>
+          <input type="text" id="compra-nombre" placeholder="Buscar en inventario o escribir manualmente…" autocomplete="off" oninput="buscarArticulosInventario()" onfocus="buscarArticulosInventario()" onblur="setTimeout(()=>cerrarAutoComplete(),200)">
+          <div id="compra-autocomplete" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow2);z-index:50;max-height:220px;overflow-y:auto"></div>
+        </div>
         <div class="form-group"><label>Departamento</label>
           <select id="compra-dept">
             <option>Repuesto</option><option selected>Ferretería</option>
@@ -416,7 +420,7 @@ tbody tr:hover{background:var(--bg)}
         </div>
         <div class="form-group"><label>Cantidad a comprar</label><input type="number" id="compra-qty" value="1" min="1"></div>
       </div>
-      <div style="margin-top:1rem;display:flex;gap:10px">
+      <div style="margin-top:1rem;display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="agregarAListaCompra()">+ Agregar a la lista</button>
         <button class="btn btn-secondary" onclick="exportarListaCompraPDF()">📄 Exportar PDF</button>
         <button class="btn btn-danger" onclick="limpiarListaCompra()">🗑 Limpiar Lista</button>
@@ -607,6 +611,12 @@ tbody tr:hover{background:var(--bg)}
       <div class="form-group" style="flex:1"><label>Desde</label><input type="date" id="hist-pag-fecha-inicio"></div>
       <div class="form-group" style="flex:1"><label>Hasta</label><input type="date" id="hist-pag-fecha-fin"></div>
       <button class="btn btn-primary btn-sm" onclick="cargarHistorialPagadas()" style="margin-top:1.5rem">Buscar</button>
+      <div class="form-group" style="flex:1"><label>Proveedor</label>
+        <select id="hist-pag-proveedor" onchange="cargarHistorialPagadas()">
+          <option value="">Todos los proveedores</option>
+          <!-- Opciones de proveedores se cargarán con JS -->
+        </select>
+      </div>
     </div>
     <div class="table-wrap">
       <table><thead><tr>
@@ -616,6 +626,9 @@ tbody tr:hover{background:var(--bg)}
     </div>
     <div id="hist-pag-empty" class="empty" style="display:none">
       <div class="empty-icon">🧾</div><h3>Sin facturas pagadas</h3><p>No hay registros en el período seleccionado</p>
+    </div>
+    <div style="text-align:right; margin-top:15px; padding-right:10px;">
+      <strong style="font-size:1.1em;">Total Pagado: <span id="hist-pag-total">RD$ 0.00</span></strong>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="cerrarModal('modal-historial-pagadas')">Cerrar</button>
@@ -760,8 +773,13 @@ function checkAuth() {
 
 async function initApp() {
   try {
-    // Check health
+    // Check health with timeout (15s max)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    
     const health = await apiGET('/health');
+    clearTimeout(timeoutId);
+    
     document.getElementById('db-info').textContent = 'Supabase: ' + (health.status || 'conectado');
     
     document.getElementById('loading').style.display = 'none';
@@ -1264,44 +1282,98 @@ async function importarExcel(input) {
   const file = input.files[0];
   if (!file) return;
   
-  // Send file to backend
+  // Enviar archivo al backend para procesamiento asíncrono
   const formData = new FormData();
   formData.append('file', file);
   
+  showImportProgress('Subiendo archivo...', 5, 'Iniciando importación...');
+  
   try {
-    showImportProgress('Subiendo archivo...', 5, 'Esperando respuesta del servidor');
     const res = await fetch(apiURL('/importar-excel'), {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
       body: formData
     });
     const data = await res.json();
-    if (data.ok) {
-      toast(`Importados: ${data.importados} artículos${data.errores ? ' · Errores: '+data.errores : ''}`, 'success');
-      renderInventario();
-      renderDashboard();
+    
+    if (!data.ok) {
       hideImportProgress();
-    } else {
-      hideImportProgress();
-      toast('Error al importar: ' + (data.error || 'desconocido'), 'error');
+      toast('Error al iniciar importación: ' + (data.error || 'desconocido'), 'error');
+      return;
     }
+    
+    const taskId = data.task_id;
+    
+    // Polling para monitorear el progreso
+    const pollInterval = setInterval(async () => {
+      try {
+        const statusRes = await fetch(apiURL(`/importar-excel/status/${taskId}`), {
+          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+        });
+        const statusData = await statusRes.json();
+        
+        if (importCancelRequested && statusData.status === 'procesando') {
+          // Cancelar la tarea
+          await fetch(apiURL(`/importar-excel/cancel/${taskId}`), {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+          });
+          clearInterval(pollInterval);
+          hideImportProgress();
+          toast('Importación cancelada', 'info');
+          importCancelRequested = false;
+          return;
+        }
+        
+        const total = statusData.total || 1;
+        const procesados = (statusData.ok || 0) + (statusData.err || 0);
+        const pct = Math.round((procesados / total) * 100);
+        const detalle = `${statusData.ok || 0} ok · ${statusData.err || 0} errores · ${procesados}/${total}`;
+        updateImportProgress(pct, detalle);
+        
+        if (statusData.status === 'completado') {
+          clearInterval(pollInterval);
+          toast(`Importación completada: ${statusData.ok} artículos${statusData.err ? ' · Errores: ' + statusData.err : ''}`, 'success');
+          renderInventario();
+          renderDashboard();
+          hideImportProgress();
+          importCancelRequested = false;
+        } else if (statusData.status === 'error') {
+          clearInterval(pollInterval);
+          toast('Error en importación: ' + (statusData.error || 'desconocido'), 'error');
+          hideImportProgress();
+          importCancelRequested = false;
+        } else if (statusData.status === 'cancelado') {
+          clearInterval(pollInterval);
+          hideImportProgress();
+          toast('Importación cancelada', 'info');
+          importCancelRequested = false;
+        }
+      } catch(pollErr) {
+        clearInterval(pollInterval);
+        hideImportProgress();
+        toast('Error al monitorear progreso', 'error');
+        importCancelRequested = false;
+      }
+    }, 1000);
+    
   } catch(e) {
     hideImportProgress();
-    // Fallback: client-side import (same as before)
-    showImportProgress('Importando en el cliente...', 0, 'Procesando filas');
+    // Fallback: importación desde el cliente si falla el backend
+    showImportProgress('Importando en el navegador...', 0, 'Procesando filas');
     const reader = new FileReader();
     reader.onload = async e2 => {
       try {
         const wb = XLSX.read(e2.target.result, {type:'binary'});
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(ws);
-        if (!rows.length) { toast('Archivo vacío','error'); return; }
+        if (!rows.length) { toast('Archivo vacío','error'); hideImportProgress(); return; }
         let ok = 0, err = 0;
         for (let index = 0; index < rows.length; index++) {
           if (importCancelRequested) break;
           const r = rows[index];
           const nombre = String(r['Nombre']||r['nombre']||'').trim();
-          if (!nombre) { err++; updateImportProgress((index + 1) / rows.length * 100, `${index + 1}/${rows.length} filas`); continue; }
+          if (!nombre) { err++; updateImportProgress((index + 1) / rows.length * 100, `${index + 1}/${rows.length} · ${ok} ok, ${err} err`); continue; }
           const codigo = String(r['Código']||r['Codigo']||r['codigo']||'').trim();
           const dept = String(r['Departamento']||r['departamento']||'Ferretería').trim();
           const precio_costo = parseFloat(r['Precio de Costo']||r['PrecioCosto']||r['precio_costo']||r['precio']||0);
@@ -1321,7 +1393,7 @@ async function importarExcel(input) {
             }
             ok++;
           } catch(ex) { err++; }
-          updateImportProgress((index + 1) / rows.length * 100, `${index + 1}/${rows.length} filas`);
+          updateImportProgress((index + 1) / rows.length * 100, `${index + 1}/${rows.length} · ${ok} ok, ${err} err`);
         }
         if (importCancelRequested) {
           toast('Importación cancelada', 'info');
@@ -1376,6 +1448,61 @@ async function renderListaCompras(lista) {
       </tr>`;
     }).join('');
   } catch(e) { toast('Error al cargar lista','error'); }
+}
+
+// ═══════════════════════════════════════════
+//  AUTOCOMPLETE DESDE INVENTARIO
+// ═══════════════════════════════════════════
+
+let _autocompleteTimeout = null;
+
+async function buscarArticulosInventario() {
+  const input = document.getElementById('compra-nombre');
+  const q = input.value.trim().toLowerCase();
+  const box = document.getElementById('compra-autocomplete');
+
+  if (q.length < 1) { box.style.display = 'none'; return; }
+
+  // Debounce para no saturar la API
+  clearTimeout(_autocompleteTimeout);
+  _autocompleteTimeout = setTimeout(async () => {
+    try {
+      const arts = await apiGET('/articulos', { search: q });
+      if (!arts.length) { box.style.display = 'none'; return; }
+
+      box.innerHTML = arts.slice(0, 10).map(a => {
+        const bajo = a.stock <= a.stock_min;
+        const stockLabel = bajo
+          ? `<span style="color:var(--red);font-size:11px">⚠️ Stock: ${a.stock}</span>`
+          : `<span style="color:var(--text3);font-size:11px">Stock: ${a.stock}</span>`;
+        return `<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"
+                  onmousedown="seleccionarAutoComplete('${a.nombre.replace(/'/g, "\\'")}','${a.departamento||'Ferretería'}')">
+          <div>
+            <strong style="font-size:13px">${a.nombre}</strong>
+            ${a.codigo ? `<span style="font-size:11px;color:var(--text3);margin-left:6px">${a.codigo}</span>` : ''}
+          </div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <span class="badge dept-${a.departamento||'Ferretería'}" style="font-size:10px">${a.departamento||'Ferretería'}</span>
+            ${stockLabel}
+          </div>
+        </div>`;
+      }).join('');
+      box.style.display = 'block';
+    } catch(e) { /* silencio */ }
+  }, 200);
+}
+
+function seleccionarAutoComplete(nombre, dept) {
+  document.getElementById('compra-nombre').value = nombre;
+  if (dept) document.getElementById('compra-dept').value = dept;
+  document.getElementById('compra-autocomplete').style.display = 'none';
+  // Enfocar el campo de cantidad
+  document.getElementById('compra-qty').focus();
+  document.getElementById('compra-qty').select();
+}
+
+function cerrarAutoComplete() {
+  document.getElementById('compra-autocomplete').style.display = 'none';
 }
 
 async function agregarAListaCompra() {
@@ -1446,7 +1573,7 @@ async function exportarListaCompraPDF() {
 //  HISTORIAL FACTURAS PAGADAS
 // ═══════════════════════════════════════════
 
-function abrirModalHistorialPagadas() {
+async function abrirModalHistorialPagadas() {
   abrirModal('modal-historial-pagadas');
   // Set default dates (last 30 days)
   const hoy = new Date();
@@ -1455,30 +1582,48 @@ function abrirModalHistorialPagadas() {
   document.getElementById('hist-pag-fecha-fin').value = hoy.toISOString().split('T')[0];
   document.getElementById('hist-pag-fecha-inicio').value = hace30dias.toISOString().split('T')[0];
   cargarHistorialPagadas();
+
+  // Cargar proveedores para el filtro
+  try {
+    const provs = await apiGET('/proveedores');
+    const sel = document.getElementById('hist-pag-proveedor');
+    sel.innerHTML = '<option value="">Todos los proveedores</option>' + provs.map(p => `<option value="${p.id}">${p.empresa}</option>`).join('');
+  } catch(e) {
+    console.error('Error al cargar proveedores para el filtro:', e);
+  }
 }
 
 async function cargarHistorialPagadas() {
   const fechaInicio = document.getElementById('hist-pag-fecha-inicio').value;
   const fechaFin = document.getElementById('hist-pag-fecha-fin').value;
+  const proveedorId = document.getElementById('hist-pag-proveedor').value; // Obtener el ID del proveedor seleccionado
   const tbody = document.getElementById('tbody-historial-pagadas');
+  let totalMontoPagado = 0; // Inicializar el total
   const empty = document.getElementById('hist-pag-empty');
+  const totalPagadoSpan = document.getElementById('hist-pag-total'); // Elemento para mostrar el total
 
   try {
     const params = { estado: 'pagada' };
     if (fechaInicio) params.fecha_inicio = fechaInicio;
     if (fechaFin) params.fecha_fin = fechaFin;
+    if (proveedorId) params.proveedor_id = proveedorId; // Añadir el filtro por proveedor
 
     const facturas = await apiGET('/facturas', params);
     
     if (!facturas.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
     empty.style.display='none';
-    tbody.innerHTML = facturas.map(f => `<tr>
-      <td><strong>${f.numero}</strong></td>
-      <td>${f.empresa||'—'}</td>
-      <td style="font-weight:600">${fmt(f.monto)}</td>
-      <td>${f.fecha_emision||'—'}</td>
-      <td>${f.fecha_pago ? f.fecha_pago.split('T')[0] : '—'}</td>
-    </tr>`).join('');
+    tbody.innerHTML = facturas.map(f => {
+      totalMontoPagado += f.monto || 0; // Sumar al total
+      return `<tr>
+        <td><strong>${f.numero}</strong></td>
+        <td>${f.empresa||'—'}</td>
+        <td style="font-weight:600">${fmt(f.monto)}</td>
+        <td>${f.fecha_emision||'—'}</td>
+        <td>${f.fecha_pago ? f.fecha_pago.split('T')[0] : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    totalPagadoSpan.textContent = fmt(totalMontoPagado); // Mostrar el total
   } catch(e) { toast('Error al cargar historial: ' + e.message, 'error'); }
 }
 
@@ -1850,6 +1995,7 @@ if (checkAuth()) {
   });
 } else {
   document.getElementById('loading').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex'; // Explicitamente mostrar la pantalla de login
   document.getElementById('login-user').addEventListener('keypress', e => {
     if (e.key === 'Enter') document.getElementById('login-pass').focus();
   });

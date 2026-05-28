@@ -6,8 +6,9 @@ Deployable on Vercel as serverless functions.
 import os
 import json
 import base64
+import signal
 from datetime import datetime, date
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_file, send_from_directory, render_template
 from flask_cors import CORS
 from io import BytesIO
 import sys, uuid, threading
@@ -20,8 +21,8 @@ import backend.db as db
 
 app = Flask(__name__, 
     static_url_path='', 
-    static_folder=os.path.join(PROJECT_ROOT, '.'),
-    template_folder=os.path.join(PROJECT_ROOT, '.'))
+    static_folder=os.path.join(PROJECT_ROOT, 'static'),
+    template_folder=os.path.join(PROJECT_ROOT, 'templates'))
 CORS(app)
 
 # ─── Auth (simple) ───
@@ -314,6 +315,9 @@ def delete_proveedor(prov_id):
 def get_facturas():
     search = request.args.get("search", "")
     estado = request.args.get("estado", "")
+    fecha_inicio = request.args.get("fecha_inicio", "")
+    fecha_fin = request.args.get("fecha_fin", "")
+    proveedor_id = request.args.get("proveedor_id", "")
     sql = """SELECT f.*, p.empresa FROM facturas f 
              LEFT JOIN proveedores p ON f.proveedor_id=p.id"""
     conds = []
@@ -331,6 +335,9 @@ def get_facturas():
     if fecha_fin:
         conds.append("f.fecha_emision <= ?")
         params.append(fecha_fin)
+    if proveedor_id:
+        conds.append("f.proveedor_id = ?")
+        params.append(proveedor_id)
     
     if conds:
         sql += " WHERE " + " AND ".join(conds)
@@ -576,13 +583,13 @@ def importar_excel():
                     import_tasks[tid]["err"] += 1
                     continue
                 try:
-                    nombre = row[1]
-                    codigo = row[0]
-                    dept = row[2] if len(row) > 2 and row[2] else "Ferretería"
-                    precio_costo = float(row[3]) if len(row) > 3 and row[3] else 0
-                    precio_venta = float(row[4]) if len(row) > 4 and row[4] else 0
-                    stock = int(row[5]) if len(row) > 5 and row[5] else 0
-                    stock_min = int(row[6]) if len(row) > 6 and row[6] else 5
+                    nombre = str(row[1]).strip() if row[1] is not None else ""
+                    codigo = str(row[0]).strip() if row[0] is not None else ""
+                    dept = str(row[2]).strip() if len(row) > 2 and row[2] is not None else "Ferretería"
+                    precio_costo = float(row[3]) if len(row) > 3 and row[3] is not None else 0
+                    precio_venta = float(row[4]) if len(row) > 4 and row[4] is not None else 0
+                    stock = int(row[5]) if len(row) > 5 and row[5] is not None else 0
+                    stock_min = int(row[6]) if len(row) > 6 and row[6] is not None else 5
 
                     if codigo:
                         existing = db.query("SELECT id FROM articulos WHERE codigo=?", [codigo])
@@ -851,7 +858,7 @@ def health():
 
 @app.route("/")
 def serve_frontend():
-    return send_from_directory(PROJECT_ROOT, 'index.html')
+    return render_template('index.html')
 
 
 # ─── Init DB on startup ───

@@ -9,7 +9,6 @@ FerrePro es una **aplicación web de gestión de inventario para ferreterías** 
 - 🧾 Cuentas por pagar
 - 💰 Márgenes de ganancia y rentabilidad
 - 🔐 Autenticación y seguridad
-- 💾 Backups en la nube (Turso)
 ---
 ---
 
