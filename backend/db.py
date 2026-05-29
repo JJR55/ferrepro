@@ -4,6 +4,7 @@ Falls back to Turso HTTP if no Supabase DB URL is configured.
 """
 import os
 import json
+import atexit
 import time
 from pathlib import Path
 from dotenv import load_dotenv
@@ -180,6 +181,32 @@ def init_db():
         dias_credito INTEGER DEFAULT 30, notas TEXT
     )""" % pk_type)
 
+    execute("""CREATE TABLE IF NOT EXISTS clientes (
+        id %s,
+        nombre TEXT, telefono TEXT, rnc_cedula TEXT, direccion TEXT, 
+        creado_at TIMESTAMPTZ DEFAULT NOW()
+    )""" % pk_type)
+
+    execute("""CREATE TABLE IF NOT EXISTS cotizaciones (
+        id %s,
+        cliente_id INTEGER,
+        items TEXT, -- JSON con los productos
+        total DOUBLE PRECISION DEFAULT 0,
+        validez_dias INTEGER DEFAULT 15,
+        creado_at TIMESTAMPTZ DEFAULT NOW()
+    )""" % pk_type)
+
+    execute("""CREATE TABLE IF NOT EXISTS cuentas_cobrar (
+        id %s,
+        cliente_id INTEGER,
+        concepto TEXT,
+        monto DOUBLE PRECISION DEFAULT 0,
+        saldo_pendiente DOUBLE PRECISION DEFAULT 0,
+        estado TEXT DEFAULT 'pendiente', -- pendiente, pagada
+        fecha_vencimiento TEXT,
+        creado_at TIMESTAMPTZ DEFAULT NOW()
+    )""" % pk_type)
+
     execute("""CREATE TABLE IF NOT EXISTS facturas (
         id %s,
         numero TEXT, proveedor_id INTEGER, monto DOUBLE PRECISION DEFAULT 0,
@@ -250,3 +277,11 @@ def init_db():
     table_names = [t["name"] for t in tables] if tables else []
     print(f"[DB] Tables: {table_names}")
     return tables
+
+@atexit.register
+def close_db():
+    """Cierra el pool de conexiones explícitamente al apagar el programa para evitar errores de finalización."""
+    global _client
+    if _client:
+        _client.close()
+        _client = None

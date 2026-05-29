@@ -10,7 +10,6 @@ import signal
 from datetime import datetime, date
 from flask import Flask, request, jsonify, send_file, send_from_directory, render_template
 from flask_cors import CORS
-import requests
 from io import BytesIO
 import sys, uuid, threading
 
@@ -152,13 +151,15 @@ def create_articulos_batch():
     data = request.get_json(silent=True) or []
     if not isinstance(data, list) or not data:
         return jsonify({"error": "Se requiere una lista de articulos"}), 400
-    
-    rows = []
+    sql_parts = []
+    params = []
     for item in data:
+        # minimal validation
         nombre = item.get("nombre")
         if not nombre:
             return jsonify({"error": "Cada articulo necesita 'nombre'"}), 400
-        rows.append([
+        sql_parts.append("INSERT INTO articulos (codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, descripcion, proveedor_id, unidad) VALUES (?,?,?,?,?,?,?,?,?,?);")
+        params.extend([
             item.get("codigo", ""),
             nombre,
             item.get("departamento", "Ferretería"),
@@ -170,18 +171,11 @@ def create_articulos_batch():
             item.get("proveedor_id"),
             item.get("unidad", "u.")
         ])
-    
-    sql = """INSERT INTO articulos 
-             (codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, descripcion, proveedor_id, unidad)
-             VALUES (?,?,?,?,?,?,?,?,?,?)"""
+    full_sql = "BEGIN TRANSACTION; " + " ".join(sql_parts) + " COMMIT;"
     try:
-        # Usar executemany para insertar múltiples filas de forma eficiente
-        for row in rows:
-            db.execute(sql, row)
-        return jsonify({"ok": True, "count": len(rows)})
+        db.execute(full_sql, params)
+        return jsonify({"ok": True})
     except Exception as e:
-        if "UNIQUE" in str(e):
-            return jsonify({"error": "Uno o más códigos ya existen"}), 409
         return jsonify({"error": str(e)}), 500
 
 
@@ -434,8 +428,8 @@ def create_factura():
         return jsonify({"error": "Número, emisión y vencimiento son requeridos"}), 400
     
     sql = """INSERT INTO facturas 
-             (numero, proveedor_id, monto, fecha_emision, fecha_vencimiento, estado, descripcion, moneda)
-             VALUES (?,?,?,?,?,?,?,?)"""
+             (numero, proveedor_id, monto, fecha_emision, fecha_vencimiento, estado, descripcion)
+             VALUES (?,?,?,?,?,?,?)"""
     db.execute(sql, [
         data["numero"],
         data.get("proveedor_id"),
@@ -443,8 +437,7 @@ def create_factura():
         data["fecha_emision"],
         data["fecha_vencimiento"],
         data.get("estado", "pendiente"),
-        data.get("descripcion", ""),
-        data.get("moneda", "DOP")
+        data.get("descripcion", "")
     ])
     return jsonify({"ok": True})
 
@@ -484,7 +477,7 @@ def create_facturas_batch():
 def update_factura(fact_id):
     data = request.get_json(silent=True) or {}
     sql = """UPDATE facturas SET numero=?, proveedor_id=?, monto=?, fecha_emision=?, 
-             fecha_vencimiento=?, estado=?, descripcion=?, moneda=? WHERE id=?"""
+             fecha_vencimiento=?, estado=?, descripcion=? WHERE id=?"""
     db.execute(sql, [
         data.get("numero", ""),
         data.get("proveedor_id"),
@@ -493,7 +486,6 @@ def update_factura(fact_id):
         data.get("fecha_vencimiento", ""),
         data.get("estado", "pendiente"),
         data.get("descripcion", ""),
-        data.get("moneda", "DOP"),
         fact_id
     ])
     return jsonify({"ok": True})
@@ -597,19 +589,65 @@ def limpiar_lista_compras():
 
 
 # ═══════════════════════════════════════
-#  DIVISAS
+#  CLIENTES Y COTIZACIONES
 # ═══════════════════════════════════════
 
-@app.route("/api/tasa-cambio", methods=["GET"])
-def get_tasa_cambio():
-    try:
-        # Consultar una API pública de tipos de cambio (Open Rate API)
-        res = requests.get("https://open.er-api.com/v6/latest/USD", timeout=5)
-        data = res.json()
-        rate = data["rates"].get("DOP", 58.5) # Fallback manual si falla la API
-        return jsonify({"usd_to_dop": rate})
-    except Exception:
-        return jsonify({"usd_to_dop": 58.5, "error": "No se pudo conectar con el servidor de divisas"}), 200
+@app.route("/api/clientes", methods=["GET"])
+def get_clientes():
+    items = db.query("SELECT * FROM clientes ORDER BY nombre")
+    return jsonify(items)
+
+@app.route("/api/clientes", methods=["POST"])
+def create_cliente():
+    data = request.get_json(silent=True) or {}
+    db.execute("INSERT INTO clientes (nombre, telefono, rnc_cedula, direccion) VALUES (?,?,?,?)",
+               [data.get("nombre"), data.get("telefono"), data.get("rnc_cedula"), data.get("direccion")])
+    return jsonify({"ok": True})
+
+@app.route("/api/cotizaciones", methods=["POST"])
+def create_cotizacion():
+    data = request.get_json(silent=True) or {}
+    items_json = json.dumps(data.get("items", []))
+    db.execute("INSERT INTO cotizaciones (cliente_id, items, total, validez_dias) VALUES (?,?,?,?)",
+               [data.get("cliente_id"), items_json, data.get("total", 0), data.get("validez_dias", 15)])
+    return jsonify({"ok": True})
+
+@app.route("/api/cuentas-cobrar", methods=["GET"])
+def get_cuentas_cobrar():
+    sql = """SELECT cc.*, cl.nombre as cliente_nombre 
+             FROM cuentas_cobrar cc 
+             LEFT JOIN clientes cl ON cc.cliente_id = cl.id 
+             ORDER BY cc.creado_at DESC"""
+    items = db.query(sql)
+    return jsonify(items)
+
+@app.route("/api/cuentas-cobrar", methods=["POST"])
+def create_cuenta_cobrar():
+    data = request.get_json(silent=True) or {}
+    monto = float(data.get("monto", 0))
+    vence = data.get("fecha_vencimiento")
+    if not vence:
+        vence = (date.today().replace(month=date.today().month+1)).isoformat() # +30 días aprox
+        
+    db.execute("""INSERT INTO cuentas_cobrar 
+                  (cliente_id, concepto, monto, saldo_pendiente, estado, fecha_vencimiento) 
+                  VALUES (?,?,?,?,?,?)""",
+               [data.get("cliente_id"), data.get("concepto"), monto, monto, "pendiente", vence])
+    return jsonify({"ok": True})
+
+@app.route("/api/cuentas-cobrar/<int:cc_id>/pagar", methods=["POST"])
+def pagar_cuenta_cobrar(cc_id):
+    data = request.get_json(silent=True) or {}
+    monto_pago = float(data.get("monto", 0))
+    
+    res = db.query("SELECT saldo_pendiente FROM cuentas_cobrar WHERE id=?", [cc_id])
+    if not res: return jsonify({"error": "No encontrada"}), 404
+    
+    nuevo_saldo = max(0, res[0]["saldo_pendiente"] - monto_pago)
+    estado = "pagada" if nuevo_saldo <= 0 else "pendiente"
+    
+    db.execute("UPDATE cuentas_cobrar SET saldo_pendiente=?, estado=? WHERE id=?", [nuevo_saldo, estado, cc_id])
+    return jsonify({"ok": True, "nuevo_saldo": nuevo_saldo})
 
 
 # ═══════════════════════════════════════

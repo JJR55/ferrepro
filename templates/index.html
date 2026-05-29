@@ -210,6 +210,7 @@ tbody tr:hover{background:var(--bg)}
   background-image: linear-gradient(135deg, rgba(255,255,255,.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.15) 50%, rgba(255,255,255,.15) 75%, transparent 75%, transparent);
   animation: progress-stripes 1s linear infinite;
 }
+.status-pedido{background:var(--blue-bg);color:var(--blue);font-weight:bold}
 .status-recibido{background:var(--green-bg);color:var(--green);font-weight:bold}
 .status-faltante{background:var(--red-bg);color:var(--red);font-weight:bold}
 @keyframes progress-stripes { from { background-position: 30px 0; } to { background-position: 0 0; } }
@@ -257,6 +258,8 @@ tbody tr:hover{background:var(--bg)}
   <button class="tab-btn" onclick="switchTab('proveedores', event)">🏭 Proveedores</button>
   <button class="tab-btn" onclick="switchTab('facturas', event)">🧾 Cuentas por Pagar</button>
   <button class="tab-btn" onclick="switchTab('compras', event)">🛒 Lista de Compras</button>
+  <button class="tab-btn" onclick="switchTab('cotizaciones', event)">📄 Cotizaciones</button>
+  <button class="tab-btn" onclick="switchTab('cobrar', event)">💰 Cuentas por Cobrar</button>
   <button class="tab-btn" onclick="switchTab('movimientos', event)">📦 Entradas/Salidas</button>
   <button class="tab-btn" onclick="switchTab('barcode', event)">🏷️ Código Barras</button>
 </div>
@@ -423,6 +426,65 @@ tbody tr:hover{background:var(--bg)}
     </div>
   </div>
 
+  <!-- COTIZACIONES -->
+  <div id="tab-cotizaciones" class="tab-pane">
+    <h2 class="section-title">Generar Cotización</h2>
+    <div class="card" style="margin-bottom:1.5rem">
+      <div class="form-grid">
+        <div class="form-group span2">
+          <label>Cliente</label>
+          <div style="display:flex;gap:8px">
+            <select id="cotiz-cliente-sel" style="flex:1"><option value="">Consumidor Final</option></select>
+            <button class="btn btn-secondary btn-sm" onclick="abrirModalCliente()">+ Nuevo</button>
+          </div>
+        </div>
+        <div class="form-group span2" style="position:relative">
+          <label>Buscar Artículo</label>
+          <input type="text" id="cotiz-art-search" placeholder="Escribe nombre o código..." oninput="buscarArticuloCotizacion()">
+          <div id="cotiz-autocomplete" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1.5px solid var(--border);z-index:100;max-height:200px;overflow-y:auto"></div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="table-wrap">
+      <table><thead><tr>
+        <th>Descripción</th><th>Cant.</th><th>Precio</th><th>Subtotal</th><th></th>
+      </tr></thead>
+      <tbody id="tbody-cotiz-items"></tbody>
+      <tfoot>
+        <tr>
+          <td colspan="3" style="text-align:right;font-weight:bold;font-size:1.2em">TOTAL A PAGAR:</td>
+          <td id="cotiz-total-val" style="font-weight:bold;font-size:1.2em;color:var(--accent)">RD$ 0.00</td>
+          <td></td>
+        </tr>
+      </tfoot>
+      </table>
+    </div>
+    
+    <div style="margin-top:1.5rem;display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-secondary" onclick="limpiarCotizacion()">🗑 Limpiar</button>
+      <button class="btn btn-secondary" onclick="exportarCotizacionPDF()">📄 Exportar PDF</button>
+      <button class="btn btn-primary" onclick="guardarVentaCredito()">💳 Guardar como Crédito</button>
+    </div>
+  </div>
+
+  <!-- CUENTAS POR COBRAR -->
+  <div id="tab-cobrar" class="tab-pane">
+    <h2 class="section-title">Historial de Créditos (Cuentas por Cobrar)</h2>
+    <div class="stats-row" style="grid-template-columns: 1fr; margin-bottom: 1.5rem;">
+      <div class="stat-card amber">
+        <div class="stat-label">Total Pendiente de Cobro</div>
+        <div class="stat-val" id="cobrar-total-val">RD$ 0.00</div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr>
+        <th>Fecha</th><th>Cliente</th><th>Concepto</th><th>Monto Total</th><th>Saldo Pend.</th><th>Vencimiento</th><th>Estado</th><th>Acciones</th>
+      </tr></thead>
+      <tbody id="tbody-cobrar"></tbody></table>
+    </div>
+  </div>
+
   <!-- LISTA DE COMPRAS -->
   <div id="tab-compras" class="tab-pane">
     <h2 class="section-title">Lista de Compras Urgentes</h2>
@@ -450,6 +512,10 @@ tbody tr:hover{background:var(--bg)}
         <button class="btn btn-danger" onclick="limpiarListaCompra()">🗑 Limpiar Lista</button>
         <button class="btn btn-secondary" onclick="abrirModalHistorialCompras()">📜 Historial</button>
       </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:1rem;border-bottom:1.5px solid var(--border)">
+      <button class="tab-btn active" id="btn-compra-pend" onclick="cambiarSubTabCompra('pendiente')" style="padding:10px 15px;font-size:12px;border-bottom-width:3px">🛒 Por Pedir</button>
+      <button class="tab-btn" id="btn-compra-borr" onclick="cambiarSubTabCompra('borrador')" style="padding:10px 15px;font-size:12px;border-bottom-width:3px">📝 Borrador (Push)</button>
     </div>
     <div class="toolbar">
       <div class="search-box">
@@ -597,6 +663,7 @@ tbody tr:hover{background:var(--bg)}
       <div class="table-wrap">
         <table><thead><tr>
           <th>Artículo</th><th>Departamento</th><th>Cantidad</th><th>Encargado</th><th>Recibido</th>
+          <th>Acciones</th>
         </tr></thead>
         <tbody id="tbody-historial-compras"></tbody>
       </table>
@@ -709,6 +776,23 @@ tbody tr:hover{background:var(--bg)}
   </div>
 </div>
 
+<!-- MODAL NUEVO CLIENTE -->
+<div class="modal-overlay" id="modal-cliente">
+  <div class="modal">
+    <h3 class="modal-title">Nuevo Cliente</h3>
+    <div class="form-grid">
+      <div class="form-group span2"><label>Nombre Completo *</label><input type="text" id="cli-nombre"></div>
+      <div class="form-group"><label>Teléfono</label><input type="text" id="cli-tel"></div>
+      <div class="form-group"><label>RNC / Cédula</label><input type="text" id="cli-rnc"></div>
+      <div class="form-group span2"><label>Dirección</label><input type="text" id="cli-dir"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-cliente')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarCliente()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL CONFIRMAR ELIMINAR -->
 <div class="modal-overlay" id="modal-confirm">
   <div class="modal" style="max-width:420px">
@@ -815,6 +899,28 @@ tbody tr:hover{background:var(--bg)}
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="cerrarModal('modal-historial-pagadas')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR ITEM COMPRA -->
+<div class="modal-overlay" id="modal-editar-compra">
+  <div class="modal" style="max-width:420px">
+    <h3 class="modal-title">✏️ Editar Artículo de Compra</h3>
+    <div class="form-grid full">
+      <div class="form-group"><label>Artículo</label><input type="text" id="edit-compra-nombre" readonly style="background:var(--surface2)"></div>
+      <div class="form-group"><label>Cantidad</label><input type="number" id="edit-compra-cantidad" min="1"></div>
+      <div class="form-group"><label>Departamento</label>
+        <select id="edit-compra-dept">
+          <option>Repuestos</option><option>Ferretería</option>
+          <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
+        </select>
+      </div>
+      <input type="hidden" id="edit-compra-id">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-editar-compra')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarEdicionItemCompra()">💾 Guardar Cambios</button>
     </div>
   </div>
 </div>
@@ -997,6 +1103,154 @@ function switchTab(name, evt) {
   if (name === 'barcode') renderBarcodeList();
   if (name === 'facturas') renderFacturas();
   if (name === 'compras') renderListaCompras();
+  if (name === 'cotizaciones') { cargarClientesCombo(); renderCotizacion(); }
+  if (name === 'cobrar') renderCuentasCobrar();
+}
+
+// ═══════════════════════════════════════════
+//  LÓGICA DE COTIZACIONES
+// ═══════════════════════════════════════════
+
+let cotizItems = [];
+
+async function cargarClientesCombo() {
+  const clis = await apiGET('/clientes');
+  const sel = document.getElementById('cotiz-cliente-sel');
+  sel.innerHTML = '<option value="">Consumidor Final</option>' + 
+                  clis.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
+}
+
+function buscarArticuloCotizacion() {
+  const q = document.getElementById('cotiz-art-search').value.trim().toLowerCase();
+  const box = document.getElementById('cotiz-autocomplete');
+  if(q.length < 2) { box.style.display='none'; return; }
+  
+  apiGET('/articulos', { search: q }).then(arts => {
+    if(!arts.length) { box.style.display='none'; return; }
+    box.innerHTML = arts.map(a => `<div style="padding:8px;cursor:pointer;border-bottom:1px solid var(--border)" onclick="agregarArtCotiz(${JSON.stringify(a).replace(/"/g, '&quot;')})">
+      <strong>${a.nombre}</strong> - ${fmt(a.precio_venta)} (Stock: ${a.stock})
+    </div>`).join('');
+    box.style.display='block';
+  });
+}
+
+function agregarArtCotiz(art) {
+  const exist = cotizItems.find(i => i.id === art.id);
+  if(exist) exist.cant++;
+  else cotizItems.push({ id: art.id, nombre: art.nombre, precio: art.precio_venta, cant: 1 });
+  
+  document.getElementById('cotiz-art-search').value = '';
+  document.getElementById('cotiz-autocomplete').style.display='none';
+  renderCotizacion();
+}
+
+function renderCotizacion() {
+  const tbody = document.getElementById('tbody-cotiz-items');
+  let total = 0;
+  tbody.innerHTML = cotizItems.map((i, idx) => {
+    const sub = i.precio * i.cant;
+    total += sub;
+    return `<tr>
+      <td>${i.nombre}</td>
+      <td><input type="number" value="${i.cant}" min="1" style="width:60px" onchange="actualizarCantCotiz(${idx}, this.value)"></td>
+      <td>${fmt(i.precio)}</td>
+      <td>${fmt(sub)}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="eliminarItemCotiz(${idx})">✕</button></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('cotiz-total-val').textContent = fmt(total);
+}
+
+function actualizarCantCotiz(idx, val) { cotizItems[idx].cant = parseInt(val) || 1; renderCotizacion(); }
+function eliminarItemCotiz(idx) { cotizItems.splice(idx, 1); renderCotizacion(); }
+function limpiarCotizacion() { cotizItems = []; renderCotizacion(); }
+
+function abrirModalCliente() { abrirModal('modal-cliente'); }
+async function guardarCliente() {
+  const nombre = document.getElementById('cli-nombre').value.trim();
+  if(!nombre) return toast('Nombre requerido', 'error');
+  await apiPOST('/clientes', { 
+    nombre, 
+    telefono: document.getElementById('cli-tel').value,
+    rnc_cedula: document.getElementById('cli-rnc').value,
+    direccion: document.getElementById('cli-dir').value
+  });
+  cerrarModal('modal-cliente');
+  cargarClientesCombo();
+  toast('Cliente guardado');
+}
+
+async function guardarVentaCredito() {
+  const cliId = document.getElementById('cotiz-cliente-sel').value;
+  if(!cliId) return toast('Debes seleccionar un cliente para guardar crédito', 'error');
+  if(!cotizItems.length) return toast('Cotización vacía', 'error');
+  
+  const total = cotizItems.reduce((s, i) => s + (i.precio * i.cant), 0);
+  const concepto = "Venta de mercancía: " + cotizItems.map(i => i.nombre).join(', ').substring(0, 100);
+  
+  try {
+    await apiPOST('/cuentas-cobrar', { cliente_id: cliId, concepto, monto: total });
+    // También guardamos la cotización en historial
+    await apiPOST('/cotizaciones', { cliente_id: cliId, items: cotizItems, total });
+    
+    limpiarCotizacion();
+    toast('Venta a crédito registrada exitosamente');
+    switchTab('cobrar');
+  } catch(e) { toast('Error al guardar crédito', 'error'); }
+}
+
+async function renderCuentasCobrar() {
+  const items = await apiGET('/cuentas-cobrar');
+  const tbody = document.getElementById('tbody-cobrar');
+  let totalPend = 0;
+  
+  tbody.innerHTML = items.map(cc => {
+    if(cc.estado === 'pendiente') totalPend += cc.saldo_pendiente;
+    const badge = cc.estado === 'pagada' ? 'badge-ok' : 'badge-warn';
+    return `<tr>
+      <td>${new Date(cc.creado_at).toLocaleDateString()}</td>
+      <td><strong>${cc.cliente_nombre}</strong></td>
+      <td><small>${cc.concepto}</small></td>
+      <td>${fmt(cc.monto)}</td>
+      <td style="font-weight:bold;color:var(--accent)">${fmt(cc.saldo_pendiente)}</td>
+      <td>${cc.fecha_vencimiento}</td>
+      <td><span class="badge ${badge}">${cc.estado.toUpperCase()}</span></td>
+      <td>
+        ${cc.estado === 'pendiente' ? `<button class="btn btn-green btn-sm" onclick="abonosCuentaCobrar(${cc.id}, ${cc.saldo_pendiente})">💸 Abonar</button>` : '—'}
+      </td>
+    </tr>`;
+  }).join('');
+  document.getElementById('cobrar-total-val').textContent = fmt(totalPend);
+}
+
+async function abonosCuentaCobrar(id, saldo) {
+  const monto = prompt(`Saldo pendiente: ${fmt(saldo)}. Ingrese monto del abono:`, saldo);
+  if(!monto || isNaN(monto)) return;
+  await apiPOST(`/cuentas-cobrar/${id}/pagar`, { monto: parseFloat(monto) });
+  renderCuentasCobrar();
+  toast('Abono registrado');
+}
+
+async function exportarCotizacionPDF() {
+  if(!cotizItems.length) return toast('Lista vacía', 'error');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const cliNombre = document.getElementById('cotiz-cliente-sel').options[document.getElementById('cotiz-cliente-sel').selectedIndex].text;
+  
+  doc.setFontSize(20); doc.text("COTIZACIÓN - FERREPRO", 14, 20);
+  doc.setFontSize(12); doc.text(`Cliente: ${cliNombre}`, 14, 30);
+  doc.text(`Fecha: ${new Date().toLocaleDateString()}`, 14, 37);
+  
+  const rows = cotizItems.map(i => [i.nombre, i.cant, fmt(i.precio), fmt(i.precio * i.cant)]);
+  doc.autoTable({
+    startY: 45,
+    head: [['Descripción', 'Cant.', 'Precio Unit.', 'Subtotal']],
+    body: rows,
+    foot: [['', '', 'TOTAL:', fmt(cotizItems.reduce((s,i)=>s+(i.precio*i.cant),0))]]
+  });
+  
+  doc.save(`Cotizacion_${cliNombre.replace(/ /g, '_')}.pdf`);
+  toast('Cotización exportada a PDF');
 }
 
 // ═══════════════════════════════════════════
@@ -1149,6 +1403,7 @@ async function renderInventario(lista) {
         <td style="color:var(--text3)">${a.stock_min}</td>
         <td>${estadoHTML}</td>
         <td><div class="actions-cell">
+          ${bajo ? `<button class="btn btn-amber btn-sm" onclick="enviarAComprasUrgentes(${a.id}, '${a.nombre.replace(/'/g, "\\'")}', '${a.departamento||'Ferretería'}', ${Math.max(0, a.stock_min - a.stock)})" title="Enviar a Compras Urgentes">🛒</button>` : ''}
           <button class="btn btn-secondary btn-sm" onclick="editarArticulo(${a.id})">✏️</button>
           <button class="btn btn-danger btn-sm" onclick="confirmEliminar('articulo',${a.id})">🗑</button>
         </div></td>
@@ -1679,7 +1934,10 @@ async function renderListaCompras(lista) {
   const searchFilter = document.getElementById('compra-search').value.toLowerCase();
 
   try {
-    let items = lista || await apiGET('/lista-compras', deptFilter ? { departamento: deptFilter } : {});
+    const params = { filtro: compraSubTab };
+    if (deptFilter) params.departamento = deptFilter;
+    
+    let items = lista || await apiGET('/lista-compras', params);
     
     if (searchFilter) {
       items = items.filter(i => i.nombre.toLowerCase().includes(searchFilter));
@@ -1692,23 +1950,37 @@ async function renderListaCompras(lista) {
     tbody.innerHTML = items.map(i => {
       const estado = (i.estado || 'pendiente').toLowerCase();
       let stCls = '';
+      if (estado === 'pedido') stCls = 'status-pedido';
       if (estado === 'recibido') stCls = 'status-recibido';
       if (estado === 'faltante') stCls = 'status-faltante';
       
+      let actions = '';
+      if (compraSubTab === 'pendiente') {
+        actions = `<button class="btn btn-secondary btn-sm" onclick="editarItemCompra(${i.id})">✏️</button>
+                   <button class="btn btn-primary btn-sm" onclick="cambiarEstadoCompra(${i.id},'pedido')" title="Marcar como encargado (Push)">🚀 Push</button>`;
+      } else {
+        actions = `<button class="btn btn-secondary btn-sm" onclick="editarItemCompra(${i.id})">✏️</button>
+                   <button class="btn btn-green btn-sm" onclick="cambiarEstadoCompra(${i.id},'recibido')">✅ Llegó</button>
+                   <button class="btn btn-danger btn-sm" onclick="cambiarEstadoCompra(${i.id},'pendiente')" title="Mover de vuelta a por pedir">❌ No llegó</button>`;
+      }
+
       return `<tr>
         <td><strong>${i.nombre}</strong></td>
         <td><span class="badge dept-${i.departamento||'Ferretería'}">${i.departamento||'Ferretería'}</span></td>
         <td>${i.cantidad}</td>
         <td><span class="badge ${stCls}">${estado.toUpperCase()}</span></td>
-        <td><div class="actions-cell">
-          <button class="btn btn-secondary btn-sm" onclick="editarItemCompra(${i.id}, ${i.cantidad})">✏️</button>
-          <button class="btn btn-green btn-sm" onclick="cambiarEstadoCompra(${i.id},'recibido')">Llegó</button>
-          <button class="btn btn-danger btn-sm" onclick="cambiarEstadoCompra(${i.id},'faltante')">No llegó</button>
-          <button class="btn btn-secondary btn-sm" onclick="eliminarItemCompra(${i.id})">🗑</button>
-        </div></td>
+        <td><div class="actions-cell">${actions}<button class="btn btn-secondary btn-sm" onclick="eliminarItemCompra(${i.id})">🗑</button></div></td>
       </tr>`;
     }).join('');
   } catch(e) { toast('Error al cargar lista','error'); }
+}
+
+let compraSubTab = 'pendiente';
+function cambiarSubTabCompra(tab) {
+  compraSubTab = tab;
+  document.getElementById('btn-compra-pend').classList.toggle('active', tab === 'pendiente');
+  document.getElementById('btn-compra-borr').classList.toggle('active', tab === 'borrador');
+  renderListaCompras();
 }
 
 // ═══════════════════════════════════════════
@@ -1821,19 +2093,38 @@ async function cargarHistorialCompras() {
         <td><span class="badge dept-${i.departamento||'Ferretería'}">${i.departamento||'Ferretería'}</span></td>
         <td>${i.cantidad}</td>
         <td>${i.encargado || '—'}</td>
-        <td><span class="badge badge-ok">${fecha}</span></td>
+        <td>${fecha} <span class="badge ${i.estado === 'recibido' ? 'badge-ok' : 'badge-venc'}">${i.estado.toUpperCase()}</span></td>
+        <td><div class="actions-cell">
+          <button class="btn btn-secondary btn-sm" onclick="regresarItemACompras(${i.id})" title="Regresar a Lista">↩️</button>
+        </div></td>
       </tr>`;
     }).join('');
   } catch(e) { toast('Error al cargar historial: ' + e.message, 'error'); }
 }
 
-async function editarItemCompra(id, cantActual) {
-  const nuevaCant = prompt("Modificar cantidad a comprar (llegaron menos?):", cantActual);
-  if (nuevaCant === null) return;
-  const n = parseInt(nuevaCant);
-  if (isNaN(n) || n < 0) return toast("Cantidad inválida", "error");
+async function editarItemCompra(id) {
   try {
-    await apiPUT(`/lista-compras/${id}`, { cantidad: n });
+    const item = await apiGET(`/lista-compras/${id}`);
+    document.getElementById('edit-compra-id').value = item.id;
+    document.getElementById('edit-compra-nombre').value = item.nombre;
+    document.getElementById('edit-compra-cantidad').value = item.cantidad;
+    document.getElementById('edit-compra-dept').value = item.departamento;
+    abrirModal('modal-editar-compra');
+  } catch(e) { toast('Error al cargar artículo para editar: ' + e.message, 'error'); }
+}
+
+async function guardarEdicionItemCompra() {
+  const id = document.getElementById('edit-compra-id').value;
+  const cantidad = parseInt(document.getElementById('edit-compra-cantidad').value);
+  const departamento = document.getElementById('edit-compra-dept').value;
+
+  if (isNaN(cantidad) || cantidad <= 0) {
+    toast("Cantidad inválida", "error");
+    return;
+  }
+
+  try {
+    await apiPUT(`/lista-compras/${id}`, { cantidad, departamento });
     renderListaCompras();
     toast("Cantidad actualizada");
   } catch(e) { toast("Error al editar: " + e.message, "error"); }
@@ -1847,6 +2138,16 @@ async function cambiarEstadoCompra(id, estado) {
 async function eliminarItemCompra(id) {
   await apiDELETE(`/lista-compras/${id}`);
   renderListaCompras();
+}
+
+async function regresarItemACompras(id) {
+  if (!confirm('¿Estás seguro de regresar este artículo a la lista de compras pendientes?')) return;
+  try {
+    await apiPUT(`/lista-compras/${id}`, { estado: 'pendiente' });
+    toast('Artículo regresado a la lista de compras pendientes', 'info');
+    cargarHistorialCompras(); // Re-render history
+    renderListaCompras(); // Re-render main list
+  } catch(e) { toast('Error al regresar artículo: ' + e.message, 'error'); }
 }
 
 async function limpiarListaCompra() {
@@ -1946,6 +2247,24 @@ async function cargarHistorialPagadas() {
 
     totalPagadoSpan.textContent = fmt(totalMontoPagado); // Mostrar el total
   } catch(e) { toast('Error al cargar historial: ' + e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════════
+//  ENVIAR A LISTA DE COMPRAS DESDE INVENTARIO
+// ═══════════════════════════════════════════
+async function enviarAComprasUrgentes(articulo_id, nombre, departamento, cantidad_sugerida) {
+  const cantidad = prompt(`¿Cuántas unidades de "${nombre}" deseas agregar a la lista de compras?`, cantidad_sugerida > 0 ? cantidad_sugerida : 1);
+  if (cantidad === null) return; // User cancelled
+  const qty = parseInt(cantidad);
+  if (isNaN(qty) || qty <= 0) {
+    toast('Cantidad inválida', 'error');
+    return;
+  }
+  try {
+    await apiPOST('/lista-compras', { nombre: nombre, cantidad: qty, departamento: departamento, articulo_id: articulo_id, encargado: '' });
+    toast(`"${nombre}" agregado a la lista de compras`, 'success');
+    renderListaCompras(); // Re-render the shopping list tab
+  } catch (e) { toast('Error al agregar a la lista de compras: ' + e.message, 'error'); }
 }
 
 // ═══════════════════════════════════════════
