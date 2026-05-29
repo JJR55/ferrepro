@@ -520,6 +520,17 @@ def get_lista_compras():
     return jsonify(items)
 
 
+@app.route("/api/lista-compras/<int:item_id>", methods=["GET"])
+def get_lista_compra(item_id):
+    item = db.query(
+        "SELECT id, nombre, COALESCE(cantidad, 1) AS cantidad, articulo_id, departamento, COALESCE(estado, 'pendiente') AS estado, COALESCE(encargado, '') AS encargado, creado_at, completado_at FROM lista_compras WHERE id=?",
+        [item_id]
+    )
+    if not item:
+        return jsonify({"error": "No encontrado"}), 404
+    return jsonify(item[0])
+
+
 @app.route("/api/lista-compras", methods=["POST"])
 def create_lista_compra():
     data = request.get_json(silent=True) or {}

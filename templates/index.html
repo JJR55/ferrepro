@@ -25,6 +25,7 @@
   --shadow:0 1px 3px rgba(0,0,0,.07),0 4px 12px rgba(0,0,0,.05);
   --shadow2:0 2px 8px rgba(0,0,0,.1),0 12px 32px rgba(0,0,0,.08);
 }
+html,body{height:100%;width:100%;overflow-x:hidden}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
 h1,h2,h3,h4,h5{font-family:'Syne',sans-serif}
 button{font-family:'DM Sans',sans-serif;cursor:pointer;border:none;outline:none}
@@ -38,14 +39,14 @@ input,select,textarea{font-family:'DM Sans',sans-serif;outline:none}
 #topbar .db-status .dot{width:7px;height:7px;border-radius:50%;background:#4CAF50}
 
 /* TABS */
-#tabs{background:var(--surface);border-bottom:1.5px solid var(--border);display:flex;padding:0 2rem;gap:0;position:sticky;top:60px;z-index:90}
-.tab-btn{padding:14px 22px;font-family:'Syne',sans-serif;font-size:13px;font-weight:600;letter-spacing:.3px;background:none;color:var(--text3);border-bottom:2.5px solid transparent;transition:.2s;text-transform:uppercase}
+#tabs{background:var(--surface);border-bottom:1.5px solid var(--border);display:flex;padding:0 2rem;gap:0;position:sticky;top:60px;z-index:90;overflow-x:auto;white-space:nowrap}
+.tab-btn{padding:14px 22px;font-family:'Syne',sans-serif;font-size:13px;font-weight:600;letter-spacing:.3px;background:none;color:var(--text3);border-bottom:2.5px solid transparent;transition:.2s;text-transform:uppercase;flex:0 0 auto;white-space:nowrap}
 .tab-btn:hover{color:var(--text2)}
 .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
 
-/* CONTENT */
-#app{padding:2rem;max-width:1300px;margin:0 auto}
-.tab-pane{display:none}.tab-pane.active{display:block}
+/* CONTENT - Ajustado para ocupar todo el ancho */
+#app{padding:2rem;margin:0 auto;width:100%;max-width:none;min-height:calc(100vh - 140px);}
+.tab-pane{display:none;min-height:calc(100vh - 170px);overflow:auto;padding-bottom:2rem}.tab-pane.active{display:block}
 
 /* CARDS */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:1.5rem;box-shadow:var(--shadow)}
@@ -57,7 +58,7 @@ input,select,textarea{font-family:'DM Sans',sans-serif;outline:none}
 .stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:1.75rem}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.25rem}
 .stat-label{font-size:12px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
-.stat-val{font-family:'Syne',sans-serif;font-size:26px;font-weight:700;color:var(--text)}
+.stat-val{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--text)}
 .stat-card.accent{background:var(--accent-bg);border-color:#f0b39a}.stat-card.accent .stat-val{color:var(--accent)}
 .stat-card.green{background:var(--green-bg);border-color:#a8d9bb}.stat-card.green .stat-val{color:var(--green)}
 .stat-card.amber{background:var(--amber-bg);border-color:#f0d080}.stat-card.amber .stat-val{color:var(--amber)}
@@ -111,6 +112,23 @@ tbody tr:hover{background:var(--bg)}
 .modal{background:var(--surface);border-radius:var(--r3);padding:2rem;width:100%;max-width:560px;box-shadow:var(--shadow2);max-height:90vh;overflow-y:auto}
 .modal-title{font-size:20px;font-weight:800;margin-bottom:1.5rem;color:var(--text)}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:1.5rem}
+.modal, .modal * {font-size:12px;line-height:1.3;}
+.modal .modal-title {font-size:16px;}
+.modal .form-group label{font-size:11px;}
+.modal .form-group input,.modal .form-group select,.modal .form-group textarea{font-size:10px;padding:6px 8px;box-sizing:border-box}
+.modal .form-group input[type=number]{width:90px;min-width:90px;max-width:120px;align-self:flex-start}
+.modal .form-group input[type=text],
+.modal .form-group input[type=email],
+.modal .form-group input[type=password],
+.modal .form-group select,
+.modal .form-group textarea{letter-spacing:0.01em}
+.modal .form-grid{display:grid;grid-template-columns:1fr;gap:0.75rem}
+.modal .form-group{display:flex;flex-direction:column;gap:4px}
+.modal .form-group input,
+.modal .form-group select,
+.modal .form-group textarea{width:100%}
+.modal button.btn{font-size:12px;padding:7px 12px}
+.modal .form-group span, .modal .form-group small{font-size:11px}
 
 /* FORM */
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}

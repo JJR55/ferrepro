@@ -15,6 +15,8 @@ load_dotenv(dotenv_path=env_path)
 
 SUPABASE_DATABASE_URL = os.getenv("SUPABASE_DATABASE_URL", "").strip().replace(" ", "")
 SUPABASE_DEBUG = os.getenv("SUPABASE_DEBUG", "false").lower() in ("1", "true", "yes")
+SUPABASE_POOL_MIN_SIZE = int(os.getenv("SUPABASE_POOL_MIN_SIZE", "1"))
+SUPABASE_POOL_MAX_SIZE = int(os.getenv("SUPABASE_POOL_MAX_SIZE", "1"))
 
 try:
     import psycopg
@@ -38,8 +40,13 @@ class SupabaseClient:
         # Crear pool de conexiones (limitado para Supabase)
         if ConnectionPool:
             try:
-                self.pool = ConnectionPool(conninfo, min_size=1, max_size=3, timeout=5)
-                print("[Supabase] Connection pool initialized (min=1, max=3)")
+                self.pool = ConnectionPool(
+                    conninfo,
+                    min_size=SUPABASE_POOL_MIN_SIZE,
+                    max_size=SUPABASE_POOL_MAX_SIZE,
+                    timeout=5
+                )
+                print(f"[Supabase] Connection pool initialized (min={SUPABASE_POOL_MIN_SIZE}, max={SUPABASE_POOL_MAX_SIZE})")
             except Exception as e:
                 print(f"[Supabase] Warning: Connection pool failed: {e}")
                 self.pool = None
