@@ -2,7 +2,7 @@
 
 ## 📊 Descripción General
 
-FerrePro es una **aplicación web de gestión de inventario para ferreterías** con categorización por departamentos. Diseñada para control completo de:
+FerrePro es una **aplicación web de gestión de inventario para ferreterías** con categorización por departamentos. Diseñada para control completo d
 
 - 📦 Inventario (costo y precio de venta)
 - 🏭 Proveedores

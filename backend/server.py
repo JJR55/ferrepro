@@ -10,6 +10,7 @@ import signal
 from datetime import datetime, date
 from flask import Flask, request, jsonify, send_file, send_from_directory, render_template
 from flask_cors import CORS
+import requests
 from io import BytesIO
 import sys, uuid, threading
 
@@ -97,6 +98,25 @@ def get_articulo(art_id):
     return jsonify(items[0])
 
 
+@app.route("/api/articulos/buscar-por-barras", methods=["GET"])
+def get_articulo_by_barcode():
+    codigo = request.args.get("codigo", "")
+    if not codigo:
+        return jsonify({"error": "Código requerido"}), 400
+    items = db.query("SELECT * FROM articulos WHERE codigo_barras=?", [codigo])
+    if not items:
+        return jsonify({"error": "Artículo no encontrado"}), 404
+    return jsonify(items[0])
+
+
+@app.route("/api/articulos/<int:art_id>/barcode", methods=["POST"])
+def update_articulo_barcode(art_id):
+    data = request.get_json(silent=True) or {}
+    codigo_barras = data.get("codigo_barras", "")
+    db.execute("UPDATE articulos SET codigo_barras=? WHERE id=?", [codigo_barras, art_id])
+    return jsonify({"ok": True})
+
+
 @app.route("/api/articulos", methods=["POST"])
 def create_articulo():
     data = request.get_json(silent=True) or {}
@@ -132,15 +152,13 @@ def create_articulos_batch():
     data = request.get_json(silent=True) or []
     if not isinstance(data, list) or not data:
         return jsonify({"error": "Se requiere una lista de articulos"}), 400
-    sql_parts = []
-    params = []
+    
+    rows = []
     for item in data:
-        # minimal validation
         nombre = item.get("nombre")
         if not nombre:
             return jsonify({"error": "Cada articulo necesita 'nombre'"}), 400
-        sql_parts.append("INSERT INTO articulos (codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, descripcion, proveedor_id, unidad) VALUES (?,?,?,?,?,?,?,?,?,?);")
-        params.extend([
+        rows.append([
             item.get("codigo", ""),
             nombre,
             item.get("departamento", "Ferretería"),
@@ -152,11 +170,18 @@ def create_articulos_batch():
             item.get("proveedor_id"),
             item.get("unidad", "u.")
         ])
-    full_sql = "BEGIN TRANSACTION; " + " ".join(sql_parts) + " COMMIT;"
+    
+    sql = """INSERT INTO articulos 
+             (codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, descripcion, proveedor_id, unidad)
+             VALUES (?,?,?,?,?,?,?,?,?,?)"""
     try:
-        db.execute(full_sql, params)
-        return jsonify({"ok": True})
+        # Usar executemany para insertar múltiples filas de forma eficiente
+        for row in rows:
+            db.execute(sql, row)
+        return jsonify({"ok": True, "count": len(rows)})
     except Exception as e:
+        if "UNIQUE" in str(e):
+            return jsonify({"error": "Uno o más códigos ya existen"}), 409
         return jsonify({"error": str(e)}), 500
 
 
@@ -191,6 +216,53 @@ def update_articulo(art_id):
 def delete_articulo(art_id):
     db.execute("DELETE FROM articulos WHERE id=?", [art_id])
     return jsonify({"ok": True})
+
+
+@app.route("/api/articulos/limpiar-duplicados", methods=["POST"])
+def limpiar_duplicados_articulos():
+    """
+    Identifica y elimina artículos duplicados.
+    Prioriza 'codigo': si existe, se usa como identificador único.
+    Si 'codigo' está vacío, usa la combinación 'nombre' y 'departamento'.
+    Conserva la primera entrada encontrada para cada duplicado y elimina las subsiguientes.
+    """
+    try:
+        # Obtener todos los artículos con los campos necesarios para identificar duplicados
+        all_articles = db.query("SELECT id, codigo, nombre, departamento FROM articulos")
+        
+        duplicates_to_delete_ids = []
+        
+        # Diccionarios para rastrear elementos vistos
+        # {codigo: id_del_articulo_a_conservar}
+        seen_codes = {}
+        # {(nombre, departamento): id_del_articulo_a_conservar}
+        seen_names_depts = {}
+
+        for article in all_articles:
+            current_id = article['id']
+            codigo = (article['codigo'] or '').strip().lower() # Normalizar y manejar códigos nulos/vacíos
+            nombre = (article['nombre'] or '').strip().lower()
+            departamento = (article['departamento'] or '').strip().lower()
+
+            if codigo: # Si el artículo tiene un código, usarlo como identificador principal
+                if codigo in seen_codes:
+                    duplicates_to_delete_ids.append(current_id)
+                else:
+                    seen_codes[codigo] = current_id
+            else: # Si el código está vacío, usar nombre y departamento
+                key = (nombre, departamento)
+                if key in seen_names_depts:
+                    duplicates_to_delete_ids.append(current_id)
+                else:
+                    seen_names_depts[key] = current_id
+        
+        if duplicates_to_delete_ids:
+            placeholders = ', '.join(['?' for _ in duplicates_to_delete_ids])
+            db.execute(f"DELETE FROM articulos WHERE id IN ({placeholders})", duplicates_to_delete_ids)
+            
+        return jsonify({"ok": True, "deleted_count": len(duplicates_to_delete_ids)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ═══════════════════════════════════════
@@ -362,8 +434,8 @@ def create_factura():
         return jsonify({"error": "Número, emisión y vencimiento son requeridos"}), 400
     
     sql = """INSERT INTO facturas 
-             (numero, proveedor_id, monto, fecha_emision, fecha_vencimiento, estado, descripcion)
-             VALUES (?,?,?,?,?,?,?)"""
+             (numero, proveedor_id, monto, fecha_emision, fecha_vencimiento, estado, descripcion, moneda)
+             VALUES (?,?,?,?,?,?,?,?)"""
     db.execute(sql, [
         data["numero"],
         data.get("proveedor_id"),
@@ -371,7 +443,8 @@ def create_factura():
         data["fecha_emision"],
         data["fecha_vencimiento"],
         data.get("estado", "pendiente"),
-        data.get("descripcion", "")
+        data.get("descripcion", ""),
+        data.get("moneda", "DOP")
     ])
     return jsonify({"ok": True})
 
@@ -411,7 +484,7 @@ def create_facturas_batch():
 def update_factura(fact_id):
     data = request.get_json(silent=True) or {}
     sql = """UPDATE facturas SET numero=?, proveedor_id=?, monto=?, fecha_emision=?, 
-             fecha_vencimiento=?, estado=?, descripcion=? WHERE id=?"""
+             fecha_vencimiento=?, estado=?, descripcion=?, moneda=? WHERE id=?"""
     db.execute(sql, [
         data.get("numero", ""),
         data.get("proveedor_id"),
@@ -420,6 +493,7 @@ def update_factura(fact_id):
         data.get("fecha_vencimiento", ""),
         data.get("estado", "pendiente"),
         data.get("descripcion", ""),
+        data.get("moneda", "DOP"),
         fact_id
     ])
     return jsonify({"ok": True})
@@ -435,7 +509,7 @@ def pagar_factura(fact_id):
 def get_lista_compras():
     departamento = request.args.get("departamento", "")
     filtro = request.args.get("filtro", "")
-    sql = "SELECT id, nombre, COALESCE(cantidad, 1) AS cantidad, departamento, COALESCE(estado, 'pendiente') AS estado, COALESCE(encargado, '') AS encargado, creado_at, completado_at FROM lista_compras"
+    sql = "SELECT id, nombre, COALESCE(cantidad, 1) AS cantidad, articulo_id, departamento, COALESCE(estado, 'pendiente') AS estado, COALESCE(encargado, '') AS encargado, creado_at, completado_at FROM lista_compras"
     params = []
     conds = []
     if filtro == "historial":
@@ -462,8 +536,9 @@ def create_lista_compra():
     cantidad = int(data.get("cantidad", 1))
     departamento = data.get("departamento", "Ferretería")
     encargado = data.get("encargado", "")
-    sql = "INSERT INTO lista_compras (nombre, cantidad, departamento, estado, encargado, creado_at) VALUES (?,?,?,?,?,?)"
-    db.execute(sql, [data["nombre"], cantidad, departamento, "pendiente", encargado, datetime.utcnow().isoformat()])
+    articulo_id = data.get("articulo_id")
+    sql = "INSERT INTO lista_compras (nombre, cantidad, departamento, estado, encargado, creado_at, articulo_id) VALUES (?,?,?,?,?,?,?)"
+    db.execute(sql, [data["nombre"], cantidad, departamento, "pendiente", encargado, datetime.utcnow().isoformat(), articulo_id])
     return jsonify({"ok": True})
 
 
@@ -471,13 +546,41 @@ def create_lista_compra():
 def update_lista_compra(item_id):
     data = request.get_json(silent=True) or {}
     estado = data.get("estado")
-    if not estado:
-        return jsonify({"error": "Estado requerido"}), 400
+    nueva_cantidad = data.get("cantidad")
     
-    if estado in ['recibido', 'faltante']:
-        db.execute("UPDATE lista_compras SET estado=?, completado_at=? WHERE id=?", [estado, datetime.utcnow().isoformat(), item_id])
-    else:
-        db.execute("UPDATE lista_compras SET estado=? WHERE id=?", [estado, item_id])
+    # Obtener el item actual para verificar vinculación con inventario
+    res = db.query("SELECT * FROM lista_compras WHERE id=?", [item_id])
+    if not res: return jsonify({"error": "No encontrado"}), 404
+    item = res[0]
+
+    # Actualizar cantidad si se solicita (desde el botón Editar)
+    if nueva_cantidad is not None:
+        db.execute("UPDATE lista_compras SET cantidad=? WHERE id=?", [int(nueva_cantidad), item_id])
+        item['cantidad'] = int(nueva_cantidad)
+
+    if estado:
+        if estado in ['recibido', 'faltante']:
+            db.execute("UPDATE lista_compras SET estado=?, completado_at=? WHERE id=?", [estado, datetime.utcnow().isoformat(), item_id])
+            
+            # Si se marcó como recibido y está vinculado a un artículo, actualizar stock
+            if estado == 'recibido' and item.get('articulo_id'):
+                art_id = item['articulo_id']
+                cant = item['cantidad']
+                
+                art_res = db.query("SELECT stock FROM articulos WHERE id=?", [art_id])
+                if art_res:
+                    old_stock = int(art_res[0]['stock'] or 0)
+                    new_stock = old_stock + cant
+                    
+                    db.execute("UPDATE articulos SET stock=? WHERE id=?", [new_stock, art_id])
+                    
+                    # Registrar movimiento de entrada
+                    db.execute("""INSERT INTO movimientos_inventario 
+                                  (articulo_id, tipo, cantidad, stock_anterior, stock_nuevo, referencia, motivo)
+                                  VALUES (?,?,?,?,?,?,?)""",
+                               [art_id, 'entrada', cant, old_stock, new_stock, f"Compra L-C #{item_id}", "Pedido urgente recibido"])
+        else:
+            db.execute("UPDATE lista_compras SET estado=? WHERE id=?", [estado, item_id])
     return jsonify({"ok": True})
 
 
@@ -491,6 +594,66 @@ def delete_lista_compra(item_id):
 def limpiar_lista_compras():
     db.execute("DELETE FROM lista_compras")
     return jsonify({"ok": True})
+
+
+# ═══════════════════════════════════════
+#  DIVISAS
+# ═══════════════════════════════════════
+
+@app.route("/api/tasa-cambio", methods=["GET"])
+def get_tasa_cambio():
+    try:
+        # Consultar una API pública de tipos de cambio (Open Rate API)
+        res = requests.get("https://open.er-api.com/v6/latest/USD", timeout=5)
+        data = res.json()
+        rate = data["rates"].get("DOP", 58.5) # Fallback manual si falla la API
+        return jsonify({"usd_to_dop": rate})
+    except Exception:
+        return jsonify({"usd_to_dop": 58.5, "error": "No se pudo conectar con el servidor de divisas"}), 200
+
+
+# ═══════════════════════════════════════
+#  MOVIMIENTOS DE INVENTARIO
+# ═══════════════════════════════════════
+
+@app.route("/api/movimientos", methods=["GET"])
+def get_movimientos():
+    tipo = request.args.get("tipo", "")
+    sql = """SELECT m.*, a.nombre as articulo_nombre, a.codigo as articulo_codigo 
+             FROM movimientos_inventario m
+             LEFT JOIN articulos a ON m.articulo_id = a.id"""
+    params = []
+    if tipo:
+        sql += " WHERE m.tipo = ?"
+        params.append(tipo)
+    sql += " ORDER BY m.id DESC LIMIT 100"
+    items = db.query(sql, params if params else None)
+    return jsonify(items)
+
+
+@app.route("/api/movimientos", methods=["POST"])
+def create_movimiento():
+    data = request.get_json(silent=True) or {}
+    art_id = data.get("articulo_id")
+    tipo = data.get("tipo")
+    cantidad = int(data.get("cantidad", 0))
+    referencia = data.get("referencia", "")
+    motivo = data.get("motivo", "")
+    if not art_id or not tipo:
+        return jsonify({"error": "Datos incompletos"}), 400
+    res = db.query("SELECT stock FROM articulos WHERE id=?", [art_id])
+    if not res: return jsonify({"error": "Artículo no encontrado"}), 404
+    old_stock = int(res[0]['stock'] or 0)
+    new_stock = old_stock
+    if tipo == 'entrada': new_stock = old_stock + cantidad
+    elif tipo == 'salida': new_stock = old_stock - cantidad
+    elif tipo == 'ajuste': new_stock = cantidad
+    db.execute("UPDATE articulos SET stock=? WHERE id=?", [new_stock, art_id])
+    db.execute("""INSERT INTO movimientos_inventario 
+                  (articulo_id, tipo, cantidad, stock_anterior, stock_nuevo, referencia, motivo, creado_at)
+                  VALUES (?,?,?,?,?,?,?,?)""",
+               [art_id, tipo, cantidad, old_stock, new_stock, referencia, motivo, datetime.now().isoformat()])
+    return jsonify({"ok": True, "stock_anterior": old_stock, "stock_nuevo": new_stock})
 
 
 @app.route("/api/facturas/<int:fact_id>", methods=["DELETE"])
@@ -884,8 +1047,11 @@ def initialize():
     except Exception as e:
         print(f"[ERROR] DB init error: {e}")
 
+# Inicializar base de datos al importar (necesario para Vercel)
+initialize()
+
 
 if __name__ == "__main__":
-    initialize()
+    # Ejecución local
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)

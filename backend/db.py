@@ -18,43 +18,114 @@ SUPABASE_DEBUG = os.getenv("SUPABASE_DEBUG", "false").lower() in ("1", "true", "
 try:
     import psycopg
     from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
 except ImportError:
     psycopg = None
+    ConnectionPool = None
 
 import requests
 
 class SupabaseClient:
-    """PostgreSQL client for Supabase using psycopg."""
+    """PostgreSQL client for Supabase using psycopg with connection pooling."""
 
     def __init__(self, conninfo):
         if psycopg is None:
             raise ImportError("psycopg[binary] is required for Supabase support. Install it in requirements.txt")
         self.conninfo = conninfo
         print(f"[Supabase] Connected to: {conninfo[:60]}...")
+        
+        # Crear pool de conexiones (limitado para Supabase)
+        if ConnectionPool:
+            try:
+                self.pool = ConnectionPool(conninfo, min_size=1, max_size=3, timeout=5)
+                print("[Supabase] Connection pool initialized (min=1, max=3)")
+            except Exception as e:
+                print(f"[Supabase] Warning: Connection pool failed: {e}")
+                self.pool = None
+        else:
+            self.pool = None
 
     def execute(self, sql, params=None):
         if SUPABASE_DEBUG:
             print(f"[Supabase] SQL: {sql} | params: {params}")
-        try:
-            with psycopg.connect(self.conninfo, autocommit=True, connect_timeout=10) as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    # Compatibilidad: Postgres usa %s en lugar de ? para parámetros
-                    if params:
-                        sql = sql.replace("?", "%s")
-                    if params is None:
-                        cur.execute(sql)
-                    else:
-                        cur.execute(sql, params)
-                    if cur.description:
-                        rows = cur.fetchall()
-                        return [dict(r) for r in rows]
-                    return []
-        except Exception as e:
-            print(f"[Supabase] Connection error: {e}")
-            raise
+        
+        max_retries = 3
+        retry_delay = 0.5  # segundos
+        
+        for attempt in range(max_retries):
+            try:
+                if self.pool:
+                    # Usar connection pool con reintentos
+                    try:
+                        with self.pool.connection(timeout=10) as conn:
+                            with conn.cursor(row_factory=dict_row) as cur:
+                                if params:
+                                    sql_exe = sql.replace("?", "%s")
+                                else:
+                                    sql_exe = sql
+                                
+                                if params is None:
+                                    cur.execute(sql_exe)
+                                else:
+                                    cur.execute(sql_exe, params)
+                                
+                                if cur.description:
+                                    rows = cur.fetchall()
+                                    return [dict(r) for r in rows]
+                                return []
+                    except Exception as pool_err:
+                        # Si el pool falla, reintentar o usar fallback
+                        if "EMAXCONNSESSION" in str(pool_err) or "max clients" in str(pool_err):
+                            if attempt < max_retries - 1:
+                                print(f"[Supabase] Pool exhausted, retrying in {retry_delay}s...")
+                                time.sleep(retry_delay)
+                                retry_delay *= 1.5
+                                continue
+                        raise
+                else:
+                    # Fallback: conexión individual con reintentos
+                    try:
+                        with psycopg.connect(self.conninfo, autocommit=False, connect_timeout=5) as conn:
+                            with conn.cursor(row_factory=dict_row) as cur:
+                                if params:
+                                    sql_exe = sql.replace("?", "%s")
+                                else:
+                                    sql_exe = sql
+                                
+                                if params is None:
+                                    cur.execute(sql_exe)
+                                else:
+                                    cur.execute(sql_exe, params)
+                                
+                                conn.commit()
+                                if cur.description:
+                                    rows = cur.fetchall()
+                                    return [dict(r) for r in rows]
+                                return []
+                    except Exception as conn_err:
+                        if "EMAXCONNSESSION" in str(conn_err) or "max clients" in str(conn_err):
+                            if attempt < max_retries - 1:
+                                print(f"[Supabase] Connection limit reached, retrying in {retry_delay}s...")
+                                time.sleep(retry_delay)
+                                retry_delay *= 1.5
+                                continue
+                        raise
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    print(f"[Supabase] Error after {max_retries} attempts: {e}")
+                    raise
+                print(f"[Supabase] Attempt {attempt + 1} failed: {e}")
+                time.sleep(retry_delay)
+
 
     def execute_raw(self, sql, params=None):
         self.execute(sql, params)
+    
+    def close(self):
+        """Cerrar el pool de conexiones."""
+        if self.pool:
+            self.pool.close()
+
 
 
 # ─── Client singleton ───
@@ -126,6 +197,7 @@ def init_db():
         id %s,
         nombre TEXT,
         cantidad INTEGER DEFAULT 1,
+        articulo_id INTEGER,
         departamento TEXT,
         estado TEXT DEFAULT 'pendiente',
         encargado TEXT DEFAULT '',
@@ -151,10 +223,22 @@ def init_db():
     except Exception:
         pass  # Column already exists or not supported
 
+    # Asegurar que articulo_id exista en lista_compras para vinculación
+    try:
+        execute("ALTER TABLE lista_compras ADD COLUMN IF NOT EXISTS articulo_id INTEGER")
+    except Exception:
+        pass
+
     # Asegurar que las columnas encargado y completado_at existan en lista_compras
     try:
         execute("ALTER TABLE lista_compras ADD COLUMN IF NOT EXISTS encargado TEXT DEFAULT ''")
         execute("ALTER TABLE lista_compras ADD COLUMN IF NOT EXISTS completado_at TIMESTAMPTZ")
+    except Exception:
+        pass
+
+    # Asegurar que la columna moneda exista en facturas
+    try:
+        execute("ALTER TABLE facturas ADD COLUMN IF NOT EXISTS moneda TEXT DEFAULT 'DOP'")
     except Exception:
         pass
 

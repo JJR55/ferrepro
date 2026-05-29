@@ -162,7 +162,7 @@ tbody tr:hover{background:var(--bg)}
 @media(max-width:780px){.dash-grid{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.import-export-grid{grid-template-columns:1fr}.prov-grid{grid-template-columns:1fr}}
 
 /* COLOR DEPT */
-.dept-Repuesto,.dept-Repuestos{background:#EDE8FD;color:#4D35B8}
+.dept-Repuestos,.dept-Repuestos{background:#EDE8FD;color:#4D35B8}
 .dept-Ferretería{background:#E8F0FA;color:#1A4F8A}
 .dept-Plomería{background:#E8F5EE;color:#2D7A4F}
 .dept-Electricidad{background:#FDF4E0;color:#8A5C0A}
@@ -280,6 +280,21 @@ tbody tr:hover{background:var(--bg)}
     </div>
   </div>
   <div id="tab-inventario" class="tab-pane">
+    <h2 class="section-title">Gestión de Inventario</h2>
+    <div class="stats-row" style="margin-bottom: 1.5rem;">
+      <div class="stat-card">
+        <div class="stat-label">Artículos Diferentes</div>
+        <div class="stat-val" id="inv-total-count">0</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">Existencias Totales</div>
+        <div class="stat-val" id="inv-total-stock">0</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="stat-label">Stock Bajo</div>
+        <div class="stat-val" id="inv-low-count">0</div>
+      </div>
+    </div>
     <div class="import-export-grid">
       <div class="io-card">
         <div class="io-icon">📥</div>
@@ -308,7 +323,7 @@ tbody tr:hover{background:var(--bg)}
       </div>
       <select id="inv-dept" onchange="filtrarInventario()">
         <option value="">Todos los departamentos</option>
-        <option>Repuesto</option><option>Ferretería</option>
+        <option>Repuestos</option><option>Ferretería</option>
         <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
       </select>
       <select id="inv-stock" onchange="filtrarInventario()">
@@ -316,6 +331,8 @@ tbody tr:hover{background:var(--bg)}
         <option value="bajo">Stock bajo</option>
         <option value="ok">Stock normal</option>
       </select>
+      <button class="btn btn-secondary btn-sm" onclick="limpiarDuplicadosInventario()">🧹 Limpiar Duplicados</button>
+      <button class="btn btn-secondary btn-sm" onclick="actualizarInventario()" title="Actualizar lista de inventario">🔄 Actualizar</button>
       <button class="btn btn-primary btn-sm" onclick="abrirModalArticulo()">+ Nuevo Artículo</button>
     </div>
 
@@ -390,6 +407,7 @@ tbody tr:hover{background:var(--bg)}
         <option value="pagada">Pagada</option>
         <option value="vencida">Vencida</option>
       </select>
+      <button class="btn btn-secondary btn-sm" onclick="abrirModalTasaCambio()">💱 Tasa de Cambio</button>
       <button class="btn btn-secondary btn-sm" onclick="abrirModalHistorialPagadas()">📜 Historial Pagadas</button>
       <button class="btn btn-secondary btn-sm" onclick="exportarFacturasPDF()">📄 Exportar Facturas PDF</button>
       <button class="btn btn-primary btn-sm" onclick="abrirModalFactura()">+ Nueva Factura</button>
@@ -417,7 +435,7 @@ tbody tr:hover{background:var(--bg)}
         </div>
         <div class="form-group"><label>Departamento</label>
           <select id="compra-dept">
-            <option>Repuesto</option><option selected>Ferretería</option>
+            <option>Repuestos</option><option selected>Ferretería</option>
             <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
           </select>
         </div>
@@ -440,12 +458,12 @@ tbody tr:hover{background:var(--bg)}
       </div>
       <select id="compra-filter-dept" onchange="renderListaCompras()">
         <option value="">Todos los departamentos</option>
-        <option>Repuesto</option><option>Ferretería</option>
+        <option>Repuestos</option><option>Ferretería</option>
         <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
       </select>
       <select id="compra-export-dept" onchange="renderListaCompras()">
         <option value="">Exportar todo</option>
-        <option>Repuesto</option><option>Ferretería</option>
+        <option>Repuestos</option><option>Ferretería</option>
         <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
       </select>
     </div>
@@ -570,7 +588,7 @@ tbody tr:hover{background:var(--bg)}
           <label>Departamento</label>
           <select id="hist-comp-dept">
             <option value="">Todos</option>
-            <option>Repuesto</option><option>Ferretería</option>
+            <option>Repuestos</option><option>Ferretería</option>
             <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
           </select>
         </div>
@@ -607,7 +625,7 @@ tbody tr:hover{background:var(--bg)}
       <div class="form-group"><label>Nombre *</label><input type="text" id="art-nombre" placeholder="Nombre del artículo"></div>
       <div class="form-group"><label>Departamento *</label>
         <select id="art-dept">
-          <option>Repuesto</option><option>Ferretería</option>
+          <option>Repuestos</option><option>Ferretería</option>
           <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
         </select>
       </div>
@@ -640,7 +658,7 @@ tbody tr:hover{background:var(--bg)}
       <div class="form-group"><label>Departamento</label>
         <select id="prov-dept">
           <option value="">General</option>
-          <option>Repuesto</option><option>Ferretería</option>
+          <option>Repuestos</option><option>Ferretería</option>
           <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
         </select>
       </div>
@@ -665,7 +683,14 @@ tbody tr:hover{background:var(--bg)}
       <div class="form-group"><label>Proveedor *</label>
         <select id="fact-prov-sel"><option value="">Seleccionar…</option></select>
       </div>
-      <div class="form-group"><label>Monto (RD$) *</label><input type="number" id="fact-monto" min="0" step="0.01"></div>
+      <div class="form-group" id="fact-moneda-container" style="display:none">
+        <label>Moneda</label>
+        <select id="fact-moneda">
+          <option value="DOP">Pesos (RD$)</option>
+          <option value="USD">Dólares (US$)</option>
+        </select>
+      </div>
+      <div class="form-group"><label id="fact-monto-label">Monto (RD$) *</label><input type="number" id="fact-monto" min="0" step="0.01"></div>
       <div class="form-group"><label>Estado</label>
         <select id="fact-est-sel">
           <option value="pendiente">Pendiente</option>
@@ -740,6 +765,23 @@ tbody tr:hover{background:var(--bg)}
 
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="cerrarModal('modal-backups')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL TASA DE CAMBIO -->
+<div class="modal-overlay" id="modal-tasa-cambio">
+  <div class="modal" style="max-width:420px">
+    <h3 class="modal-title">💱 Conversor de Divisas</h3>
+    <div class="form-grid full">
+      <div class="form-group"><label>Tasa Actual (USD → DOP)</label><input type="text" id="tasa-valor" readonly style="background:var(--surface2);font-weight:700;font-size:1.2em;color:var(--accent)"></div>
+      <div class="form-group"><label>Monto en US$</label><input type="number" id="tasa-calc-usd" placeholder="0.00" oninput="calcularConversionDOP()"></div>
+      <div class="form-group"><label>Equivalente en RD$</label><input type="text" id="tasa-calc-dop" readonly style="font-weight:600"></div>
+      <p style="font-size:12px;color:var(--text3);margin-top:10px">Nota: El pago a Pintura Domastur debe realizarse según la tasa del día.</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-tasa-cambio')">Cerrar</button>
+      <button class="btn btn-primary" onclick="obtenerTasaCambio()">🔄 Actualizar Tasa</button>
     </div>
   </div>
 </div>
@@ -1007,7 +1049,7 @@ async function renderDashboard() {
     `;
 
     // Dept chart
-    const colors = {'Repuesto':'#7F77DD','Ferretería':'#378ADD','Plomería':'#1D9E75','Electricidad':'#EF9F27','Hogar':'#E24B4A'};
+    const colors = {'Repuestos':'#7F77DD','Ferretería':'#378ADD','Plomería':'#1D9E75','Electricidad':'#EF9F27','Hogar':'#E24B4A'};
     const depts = stats.dept_counts || {};
     const max = Math.max(1, ...Object.values(depts));
     document.getElementById('dept-chart').innerHTML = Object.entries(depts).map(([d, cnt]) =>
@@ -1080,6 +1122,14 @@ async function renderInventario(lista) {
   try {
     const arts = lista || await apiGET('/articulos');
     invFiltrados = arts;
+    // Actualizar contadores de resumen del inventario
+    const totalCountEl = document.getElementById('inv-total-count');
+    if (totalCountEl) totalCountEl.textContent = arts.length;
+    const totalStockEl = document.getElementById('inv-total-stock');
+    if (totalStockEl) totalStockEl.textContent = arts.reduce((sum, a) => sum + (a.stock || 0), 0);
+    const lowCountEl = document.getElementById('inv-low-count');
+    if (lowCountEl) lowCountEl.textContent = arts.filter(a => a.stock <= a.stock_min).length;
+
     const tbody = document.getElementById('tbody-inv');
     const empty = document.getElementById('inv-empty');
     if (!arts.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
@@ -1123,6 +1173,20 @@ function filtrarInventario() {
   apiGET('/articulos', params)
     .then(arts => renderInventario(arts))
     .catch(e => toast('Error al filtrar: ' + e.message, 'error'));
+}
+
+function actualizarInventario() {
+  // Recargar el inventario sin filtros para ver todos los artículos
+  document.getElementById('inv-search').value = '';
+  document.getElementById('inv-dept').value = '';
+  document.getElementById('inv-stock').value = '';
+  
+  apiGET('/articulos')
+    .then(arts => {
+      renderInventario(arts);
+      toast('Inventario actualizado', 'success');
+    })
+    .catch(e => toast('Error al actualizar: ' + e.message, 'error'));
 }
 
 async function abrirModalArticulo(id) {
@@ -1188,6 +1252,24 @@ async function guardarArticulo() {
     renderDashboard();
   } catch(e) {
     toast(e.message.includes('ya existe') ? 'El código ya existe' : 'Error al guardar: ' + e.message, 'error');
+  }
+}
+
+async function limpiarDuplicadosInventario() {
+  if (!confirm('¿Estás seguro de que quieres eliminar artículos duplicados? Esta acción es irreversible y conservará solo una entrada por cada código de artículo (o nombre+departamento si el código está vacío).')) {
+    return;
+  }
+  try {
+    const res = await apiPOST('/articulos/limpiar-duplicados');
+    if (res.ok) {
+      toast(`Se eliminaron ${res.deleted_count} artículos duplicados.`, 'success');
+      renderInventario(); // Volver a cargar el inventario para reflejar los cambios
+      renderDashboard(); // Actualizar estadísticas del panel si es necesario
+    } else {
+      toast('Error al limpiar duplicados: ' + (res.error || 'desconocido'), 'error');
+    }
+  } catch (e) {
+    toast('Error de conexión al limpiar duplicados: ' + e.message, 'error');
   }
 }
 
@@ -1302,10 +1384,12 @@ async function renderFacturas(lista) {
       else if (dias < 0) diasHTML = `<span class="badge badge-venc">${Math.abs(dias)}d vencida</span>`;
       else if (dias <= 7) diasHTML = `<span class="badge badge-warn">⚠️ ${dias}d</span>`;
       else diasHTML = `<span style="color:var(--text2)">${dias}d</span>`;
+      
+      const montoHTML = f.moneda === 'USD' ? `<span style="color:var(--accent)">US$ ${f.monto.toLocaleString('en-US',{minimumFractionDigits:2})}</span>` : fmt(f.monto);
       return `<tr>
         <td><strong>${f.numero}</strong></td>
         <td>${f.empresa||'—'}</td>
-        <td style="font-weight:600">${fmt(f.monto)}</td>
+        <td style="font-weight:600">${montoHTML}</td>
         <td>${f.fecha_emision||'—'}</td>
         <td>${f.fecha_vencimiento||'—'}</td>
         <td>${diasHTML}</td>
@@ -1338,6 +1422,14 @@ async function abrirModalFactura(id) {
     const provs = await apiGET('/proveedores');
     const sel = document.getElementById('fact-prov-sel');
     sel.innerHTML = '<option value="">Seleccionar…</option>' + provs.map(p => `<option value="${p.id}">${p.empresa}</option>`).join('');
+    
+    sel.onchange = () => {
+      const nombre = sel.options[sel.selectedIndex]?.text || '';
+      const esDomastur = nombre.toLowerCase().includes('domastur');
+      document.getElementById('fact-moneda-container').style.display = esDomastur ? 'flex' : 'none';
+      document.getElementById('fact-monto-label').textContent = esDomastur ? 'Monto *' : 'Monto (RD$) *';
+      if (!esDomastur) document.getElementById('fact-moneda').value = 'DOP';
+    };
   } catch(e) {}
   if (id) {
     try {
@@ -1349,10 +1441,14 @@ async function abrirModalFactura(id) {
       document.getElementById('fact-emision').value = f.fecha_emision||'';
       document.getElementById('fact-vence').value = f.fecha_vencimiento||'';
       document.getElementById('fact-desc').value = f.descripcion||'';
+      document.getElementById('fact-moneda').value = f.moneda||'DOP';
+      setTimeout(() => document.getElementById('fact-prov-sel').onchange(), 100);
     } catch(e) { toast('Error al cargar factura','error'); return; }
   } else {
     ['fact-num','fact-monto','fact-desc'].forEach(i => document.getElementById(i).value='');
     document.getElementById('fact-est-sel').value='pendiente';
+    document.getElementById('fact-moneda').value='DOP';
+    document.getElementById('fact-moneda-container').style.display = 'none';
     const hoy = new Date().toISOString().split('T')[0];
     document.getElementById('fact-emision').value = hoy;
     const vence = new Date(); vence.setDate(vence.getDate()+30);
@@ -1371,8 +1467,9 @@ async function guardarFactura() {
   const emision = document.getElementById('fact-emision').value;
   const vence = document.getElementById('fact-vence').value;
   const desc = document.getElementById('fact-desc').value.trim();
+  const moneda = document.getElementById('fact-moneda').value;
   if (!num || !emision || !vence) { toast('Número, emisión y vencimiento son requeridos','error'); return; }
-  const body = { numero: num, proveedor_id: provId, monto, estado: est, fecha_emision: emision, fecha_vencimiento: vence, descripcion: desc };
+  const body = { numero: num, proveedor_id: provId, monto, estado: est, fecha_emision: emision, fecha_vencimiento: vence, descripcion: desc, moneda };
   try {
     if (editId) {
       await apiPUT(`/facturas/${editId}`, body);
@@ -1394,6 +1491,26 @@ async function marcarPagada(id) {
     renderDashboard();
     toast('Factura marcada como pagada','success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function obtenerTasaCambio() {
+  try {
+    const data = await apiGET('/tasa-cambio');
+    document.getElementById('tasa-valor').value = data.usd_to_dop.toFixed(2);
+    calcularConversionDOP();
+  } catch(e) { toast('No se pudo obtener la tasa','error'); }
+}
+
+function abrirModalTasaCambio() {
+  abrirModal('modal-tasa-cambio');
+  obtenerTasaCambio();
+}
+
+function calcularConversionDOP() {
+  const tasa = parseFloat(document.getElementById('tasa-valor').value) || 0;
+  const usd = parseFloat(document.getElementById('tasa-calc-usd').value) || 0;
+  const dop = usd * tasa;
+  document.getElementById('tasa-calc-dop').value = fmt(dop);
 }
 
 // ═══════════════════════════════════════════
@@ -1584,6 +1701,7 @@ async function renderListaCompras(lista) {
         <td>${i.cantidad}</td>
         <td><span class="badge ${stCls}">${estado.toUpperCase()}</span></td>
         <td><div class="actions-cell">
+          <button class="btn btn-secondary btn-sm" onclick="editarItemCompra(${i.id}, ${i.cantidad})">✏️</button>
           <button class="btn btn-green btn-sm" onclick="cambiarEstadoCompra(${i.id},'recibido')">Llegó</button>
           <button class="btn btn-danger btn-sm" onclick="cambiarEstadoCompra(${i.id},'faltante')">No llegó</button>
           <button class="btn btn-secondary btn-sm" onclick="eliminarItemCompra(${i.id})">🗑</button>
@@ -1598,6 +1716,7 @@ async function renderListaCompras(lista) {
 // ═══════════════════════════════════════════
 
 let _autocompleteTimeout = null;
+let selectedArtIdForCompra = null;
 
 async function buscarArticulosInventario() {
   const input = document.getElementById('compra-nombre');
@@ -1619,7 +1738,7 @@ async function buscarArticulosInventario() {
           ? `<span style="color:var(--red);font-size:11px">⚠️ Stock: ${a.stock}</span>`
           : `<span style="color:var(--text3);font-size:11px">Stock: ${a.stock}</span>`;
         return `<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"
-                  onmousedown="seleccionarAutoComplete('${a.nombre.replace(/'/g, "\\'")}','${a.departamento||'Ferretería'}')">
+                  onmousedown="seleccionarAutoComplete('${a.nombre.replace(/'/g, "\\'")}','${a.departamento||'Ferretería'}', ${a.id})">
           <div>
             <strong style="font-size:13px">${a.nombre}</strong>
             ${a.codigo ? `<span style="font-size:11px;color:var(--text3);margin-left:6px">${a.codigo}</span>` : ''}
@@ -1635,9 +1754,10 @@ async function buscarArticulosInventario() {
   }, 200);
 }
 
-function seleccionarAutoComplete(nombre, dept) {
+function seleccionarAutoComplete(nombre, dept, id) {
   document.getElementById('compra-nombre').value = nombre;
   if (dept) document.getElementById('compra-dept').value = dept;
+  selectedArtIdForCompra = id;
   document.getElementById('compra-autocomplete').style.display = 'none';
   // Enfocar el campo de cantidad
   document.getElementById('compra-qty').focus();
@@ -1655,9 +1775,10 @@ async function agregarAListaCompra() {
   const encargado = document.getElementById('compra-encargado').value.trim();
   if(!nombre) return toast('Nombre requerido','error');
   try {
-    await apiPOST('/lista-compras', { nombre, cantidad, departamento, encargado });
+    await apiPOST('/lista-compras', { nombre, cantidad, departamento, encargado, articulo_id: selectedArtIdForCompra });
     document.getElementById('compra-nombre').value = '';
     document.getElementById('compra-encargado').value = '';
+    selectedArtIdForCompra = null;
     renderListaCompras();
     toast('Agregado a la lista');
   } catch(e) { toast('Error al agregar','error'); }
@@ -1704,6 +1825,18 @@ async function cargarHistorialCompras() {
       </tr>`;
     }).join('');
   } catch(e) { toast('Error al cargar historial: ' + e.message, 'error'); }
+}
+
+async function editarItemCompra(id, cantActual) {
+  const nuevaCant = prompt("Modificar cantidad a comprar (llegaron menos?):", cantActual);
+  if (nuevaCant === null) return;
+  const n = parseInt(nuevaCant);
+  if (isNaN(n) || n < 0) return toast("Cantidad inválida", "error");
+  try {
+    await apiPUT(`/lista-compras/${id}`, { cantidad: n });
+    renderListaCompras();
+    toast("Cantidad actualizada");
+  } catch(e) { toast("Error al editar: " + e.message, "error"); }
 }
 
 async function cambiarEstadoCompra(id, estado) {
@@ -1864,7 +1997,7 @@ async function exportarStockBajoPDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
     const fecha = new Date().toLocaleDateString('es-DO');
-    const depts = ['Repuesto','Ferretería','Plomería','Electricidad','Hogar'];
+    const depts = ['Repuestos','Ferretería','Plomería','Electricidad','Hogar'];
     let y = 20;
     
     doc.setFontSize(18);
