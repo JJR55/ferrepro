@@ -270,7 +270,11 @@ def init_db():
     except Exception:
         pass
 
-    # Asegurar que la columna moneda exista en facturas
+    # Asegurar que las columnas fecha_pago y moneda existan en facturas
+    try:
+        execute("ALTER TABLE facturas ADD COLUMN IF NOT EXISTS fecha_pago TEXT")
+    except Exception:
+        pass
     try:
         execute("ALTER TABLE facturas ADD COLUMN IF NOT EXISTS moneda TEXT DEFAULT 'DOP'")
     except Exception:

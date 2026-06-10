@@ -396,10 +396,16 @@ def get_facturas():
         conds.append("f.estado = ?")
         params.append(estado)
     if fecha_inicio:
-        conds.append("f.fecha_emision >= ?")
+        if estado == 'pagada':
+            conds.append("f.fecha_pago >= ?")
+        else:
+            conds.append("f.fecha_emision >= ?")
         params.append(fecha_inicio)
     if fecha_fin:
-        conds.append("f.fecha_emision <= ?")
+        if estado == 'pagada':
+            conds.append("f.fecha_pago <= ?")
+        else:
+            conds.append("f.fecha_emision <= ?")
         params.append(fecha_fin)
     if proveedor_id:
         conds.append("f.proveedor_id = ?")

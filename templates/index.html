@@ -423,8 +423,8 @@ tbody tr:hover{background:var(--bg)}
         <input type="text" id="fact-search" placeholder="Buscar factura, proveedor…" oninput="filtrarFacturas()">
       </div>
       <select id="fact-estado" onchange="filtrarFacturas()">
-        <option value="">Todos los estados</option>
         <option value="pendiente">Pendiente</option>
+        <option value="">Todos los estados</option>
         <option value="pagada">Pagada</option>
         <option value="vencida">Vencida</option>
       </select>
@@ -949,7 +949,7 @@ tbody tr:hover{background:var(--bg)}
 // ═══════════════════════════════════════════
 
 // Cambia esto por la URL de tu backend en producción
-const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:'
   ? 'http://localhost:5000'
   : '';  // En Vercel, las rutas /api/ son relativas al mismo dominio
 
@@ -1093,6 +1093,9 @@ async function initApp() {
     document.getElementById('topbar').style.display = 'flex';
     document.getElementById('tabs').style.display = 'flex';
     document.getElementById('app').style.display = 'block';
+
+    const factEstado = document.getElementById('fact-estado');
+    if (factEstado && !factEstado.value) factEstado.value = 'pendiente';
     
     renderDashboard();
     renderInventario();
@@ -1639,7 +1642,13 @@ async function guardarProveedor() {
 
 async function renderFacturas(lista) {
   try {
-    const facts = lista || await apiGET('/facturas');
+    const params = {};
+    const estado = document.getElementById('fact-estado')?.value || 'pendiente';
+    const search = document.getElementById('fact-search')?.value.trim();
+    if (search) params.search = search;
+    if (estado) params.estado = estado;
+
+    const facts = lista || await apiGET('/facturas', params);
     const tbody = document.getElementById('tbody-fact');
     const empty = document.getElementById('fact-empty');
 
@@ -1679,7 +1688,8 @@ async function renderFacturas(lista) {
 
 function filtrarFacturas() {
   const q = document.getElementById('fact-search').value.toLowerCase();
-  const est = document.getElementById('fact-estado').value;
+  let est = document.getElementById('fact-estado').value;
+  if (!est) est = 'pendiente';
   const params = {};
   if (q) params.search = q;
   if (est) params.estado = est;
@@ -1760,8 +1770,15 @@ async function guardarFactura() {
 async function marcarPagada(id) {
   try {
     await apiPOST(`/facturas/${id}/pagar`);
-    renderFacturas();
+    const estadoSelect = document.getElementById('fact-estado');
+    if (estadoSelect) {
+      estadoSelect.value = 'pendiente';
+    }
+    filtrarFacturas();
     renderDashboard();
+    if (document.getElementById('modal-historial-pagadas')?.style.display === 'flex') {
+      cargarHistorialPagadas();
+    }
     toast('Factura marcada como pagada','success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
