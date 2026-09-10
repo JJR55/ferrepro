@@ -46,7 +46,14 @@ input,select,textarea{font-family:'DM Sans',sans-serif;outline:none}
 
 /* CONTENT - Ajustado para ocupar todo el ancho */
 #app{padding:2rem;margin:0 auto;width:100%;max-width:none;min-height:calc(100vh - 140px);}
-.tab-pane{display:none;min-height:calc(100vh - 170px);overflow:auto;padding-bottom:2rem}.tab-pane.active{display:block}
+.tab-pane{display:none;min-height:calc(100vh - px);overflow:auto;padding-bottom:2rem}.tab-pane.active{display:block}
+#tab-movimientos .card{padding:1rem}
+#tab-movimientos .form-grid{grid-template-columns:2fr 1.25fr .8fr 1.4fr;gap:.75rem}
+#tab-movimientos .form-group.span2{grid-column:span 4}
+#tab-movimientos .form-group input,
+#tab-movimientos .form-group select{padding:7px 10px}
+#tab-movimientos .card > div:last-child{margin-top:.75rem !important}
+@media(max-width:780px){ #tab-movimientos .form-grid{grid-template-columns:1fr} #tab-movimientos .form-group.span2{grid-column:span 1}}
 
 /* CARDS */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:1.5rem;box-shadow:var(--shadow)}
@@ -123,6 +130,13 @@ tbody tr:hover{background:var(--bg)}
 .modal .form-group select,
 .modal .form-group textarea{letter-spacing:0.01em}
 .modal .form-grid{display:grid;grid-template-columns:1fr;gap:0.75rem}
+.import-errors-list{max-height:48vh;overflow:auto;border:1px solid var(--border);border-radius:var(--r);margin-top:1rem}
+.import-error-row{padding:12px;border-bottom:1px solid var(--border);display:grid;gap:8px}
+.import-error-row:last-child{border-bottom:0}
+.import-error-message{color:var(--red);font-size:12px}
+.import-error-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.import-error-fields label{display:flex;flex-direction:column;gap:3px;color:var(--text2);font-size:11px}
+.import-error-fields input{width:100%;box-sizing:border-box}
 .modal .form-group{display:flex;flex-direction:column;gap:4px}
 .modal .form-group input,
 .modal .form-group select,
@@ -275,6 +289,7 @@ tbody tr:hover{background:var(--bg)}
   <button class="tab-btn" onclick="switchTab('inventario', event)">📦 Inventario</button>
   <button class="tab-btn" onclick="switchTab('proveedores', event)">🏭 Proveedores</button>
   <button class="tab-btn" onclick="switchTab('facturas', event)">🧾 Cuentas por Pagar</button>
+  <button class="tab-btn" onclick="switchTab('compras-mes', event)">🗓️ Compras por Mes</button>
   <button class="tab-btn" onclick="switchTab('compras', event)">🛒 Lista de Compras</button>
   <button class="tab-btn" onclick="switchTab('cotizaciones', event)">📄 Cotizaciones</button>
   <button class="tab-btn" onclick="switchTab('cobrar', event)">💰 Cuentas por Cobrar</button>
@@ -320,9 +335,9 @@ tbody tr:hover{background:var(--bg)}
       <div class="io-card">
         <div class="io-icon">📥</div>
         <div class="io-title">Importar desde Excel</div>
-        <div class="io-desc">Sube un archivo .xlsx con columnas: Código, Nombre, Departamento, Precio de Costo, Precio de Venta, Stock, Stock Mínimo</div>
+        <div class="io-desc">Sube un archivo .xlsx o .csv con columnas: Código, Nombre, Departamento, Precio de Costo, Precio de Venta, Stock, Stock Mínimo</div>
         <label class="btn btn-secondary btn-sm" style="cursor:pointer">
-          Seleccionar archivo <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importarExcel(this)">
+          Seleccionar archivo <input type="file" accept=".xlsx,.csv" style="display:none" onchange="importarExcel(this)">
         </label>
         <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="descargarPlantilla()">📋 Plantilla</button>
       </div>
@@ -332,7 +347,16 @@ tbody tr:hover{background:var(--bg)}
         <div class="io-desc">Descarga todos los artículos o solo los que tienen stock bajo para realizar compras</div>
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
           <button class="btn btn-secondary btn-sm" onclick="exportarExcel()">📊 Todo a Excel</button>
-          <button class="btn btn-amber btn-sm" onclick="exportarStockBajoPDF()">⚠️ Stock Bajo PDF</button>
+          <select id="export-stock-dept" class="btn btn-amber btn-sm" aria-label="Departamento para exportar stock bajo">
+            <option value="">⚠️ Stock Bajo: Todos</option>
+            <option value="Repuestos">Repuestos</option>
+            <option value="Ferretería">Ferretería</option>
+            <option value="Plomería">Plomería</option>
+            <option value="Electricidad">Electricidad</option>
+            <option value="Hogar">Hogar</option>
+          </select>
+          <button class="btn btn-amber btn-sm" onclick="exportarStockBajoExcel()">📊 Exportar Stock Bajo</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportarStockBajoPDF()">📄 Stock Bajo PDF</button>
         </div>
       </div>
     </div>
@@ -441,6 +465,56 @@ tbody tr:hover{background:var(--bg)}
     </div>
     <div id="fact-empty" class="empty" style="display:none">
       <div class="empty-icon">🧾</div><h3>Sin facturas</h3><p>Registra las facturas de tus proveedores</p>
+    </div>
+  </div>
+
+  <!-- COMPRAS POR MES -->
+  <div id="tab-compras-mes" class="tab-pane">
+    <h2 class="section-title">Compras por Mes</h2>
+    <div class="toolbar">
+      <button class="btn btn-primary btn-sm" onclick="abrirModalFactura()">+ Agregar Factura</button>
+      <div class="form-group">
+        <label for="compras-mes-ano">Año</label>
+        <select id="compras-mes-ano" onchange="renderComprasPorMes()"></select>
+      </div>
+      <div class="form-group">
+        <label for="compras-mes-mes">Mes</label>
+        <select id="compras-mes-mes" onchange="renderComprasPorMes()">
+          <option value="">Todos los meses</option>
+          <option value="01">Enero</option><option value="02">Febrero</option>
+          <option value="03">Marzo</option><option value="04">Abril</option>
+          <option value="05">Mayo</option><option value="06">Junio</option>
+          <option value="07">Julio</option><option value="08">Agosto</option>
+          <option value="09">Septiembre</option><option value="10">Octubre</option>
+          <option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="renderComprasPorMes()">🔄 Actualizar</button>
+    </div>
+    <div class="stats-row" style="margin-bottom:1.5rem">
+      <div class="stat-card"><div class="stat-label">Facturas</div><div class="stat-val" id="compras-mes-count">0</div></div>
+      <div class="stat-card amber"><div class="stat-label">Total Compras</div><div class="stat-val" id="compras-mes-total">RD$ 0.00</div></div>
+    </div>
+    <div class="card" style="margin-bottom:1.5rem">
+      <div class="card-header">
+        <span class="card-title">Resumen mensual</span>
+        <span style="font-size:12px;color:var(--text3)">Total de facturas por mes</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Mes</th><th>Facturas</th><th>Total comprado</th><th></th></tr></thead>
+          <tbody id="tbody-resumen-compras-mes"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Mes</th><th>Fecha</th><th>Proveedor</th><th>N° Factura</th><th>Monto</th><th>Acciones</th></tr></thead>
+        <tbody id="tbody-compras-mes"></tbody>
+      </table>
+    </div>
+    <div id="compras-mes-empty" class="empty" style="display:none">
+      <div class="empty-icon">🧾</div><h3>Sin compras registradas</h3><p>No hay facturas para el período seleccionado</p>
     </div>
   </div>
 
@@ -700,6 +774,19 @@ tbody tr:hover{background:var(--bg)}
 
   <!-- TOAST -->
   <div id="toast"></div>
+
+<!-- MODAL ERRORES DE IMPORTACION -->
+<div class="modal-overlay" id="modal-import-errors">
+  <div class="modal" style="max-width:760px">
+    <h3 class="modal-title">⚠️ Artículos no importados</h3>
+    <p style="color:var(--text2);margin-bottom:8px">Corrige los datos de cada fila y vuelve a intentarlo.</p>
+    <div id="import-errors-list" class="import-errors-list"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-import-errors')">Cerrar</button>
+      <button class="btn btn-primary" onclick="reintentarTodosErroresImportacion()">↻ Reintentar todos</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL ARTÍCULO -->
 <div class="modal-overlay" id="modal-articulo">
@@ -996,6 +1083,7 @@ function apiPUT(path, body) { return api('PUT', path, body); }
 function apiDELETE(path) { return api('DELETE', path); }
 
 let importCancelRequested = false;
+let lastImportErrors = [];
 
 function showImportProgress(message, pct = 0, detail = '') {
   const area = document.getElementById('import-progress-area');
@@ -1027,6 +1115,82 @@ function hideImportProgress() {
 function cancelImport() {
   importCancelRequested = true;
   toast('Cancelando importación...', 'info');
+}
+
+function valorImportacion(datos, ...nombres) {
+  const normalizar = value => String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+  const datosNormalizados = Object.fromEntries(Object.entries(datos || {}).map(([clave, valor]) => [normalizar(clave), valor]));
+  for (const nombre of nombres) {
+    const valor = datosNormalizados[normalizar(nombre)];
+    if (valor !== undefined && valor !== null && String(valor).trim() !== '') return valor;
+  }
+  return '';
+}
+
+function abrirErroresImportacion(errores) {
+  lastImportErrors = errores || [];
+  const lista = document.getElementById('import-errors-list');
+  if (!lista || !lastImportErrors.length) return;
+  lista.innerHTML = lastImportErrors.map((item, index) => {
+    const datos = item.datos || {};
+    return `<div class="import-error-row" data-error-index="${index}">
+      <strong>Fila ${item.fila || '?'}${valorImportacion(datos, 'Nombre') ? ` · ${valorImportacion(datos, 'Nombre')}` : ''}</strong>
+      <span class="import-error-message">${item.error || 'Error desconocido'}</span>
+      <div class="import-error-fields">
+        <label>Nombre *<input id="import-error-nombre-${index}" value="${escapeHtml(valorImportacion(datos, 'Nombre'))}"></label>
+        <label>Código<input id="import-error-codigo-${index}" value="${escapeHtml(valorImportacion(datos, 'Código', 'Codigo'))}"></label>
+        <label>Precio costo<input type="number" step="0.01" id="import-error-costo-${index}" value="${escapeHtml(valorImportacion(datos, 'Precio de Costo', 'PrecioCosto', 'Precio'))}"></label>
+        <label>Precio venta<input type="number" step="0.01" id="import-error-venta-${index}" value="${escapeHtml(valorImportacion(datos, 'Precio de Venta', 'PrecioVenta'))}"></label>
+        <label>Stock<input type="number" id="import-error-stock-${index}" value="${escapeHtml(valorImportacion(datos, 'Stock'))}"></label>
+        <label>Stock mínimo<input type="number" id="import-error-min-${index}" value="${escapeHtml(valorImportacion(datos, 'Stock Mínimo', 'Stock Minimo'))}"></label>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="reintentarErrorImportacion(${index})">Guardar y reintentar</button>
+    </div>`;
+  }).join('');
+  abrirModal('modal-import-errors');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[char]));
+}
+
+function datosEditadosErrorImportacion(index) {
+  const valor = id => document.getElementById(`import-error-${id}-${index}`).value.trim();
+  return {
+    codigo: valor('codigo'), nombre: valor('nombre'), departamento: 'Ferretería',
+    precio_costo: parseFloat(valor('costo')) || 0, precio_venta: parseFloat(valor('venta')) || 0,
+    stock: parseInt(valor('stock'), 10) || 0, stock_min: parseInt(valor('min'), 10) || 5
+  };
+}
+
+async function reintentarErrorImportacion(index) {
+  const datos = datosEditadosErrorImportacion(index);
+  if (!datos.nombre) return toast('El nombre es requerido', 'error');
+  try {
+    if (datos.codigo) {
+      const existentes = await apiGET('/articulos', { search: datos.codigo });
+      const existente = existentes.find(articulo => articulo.codigo === datos.codigo);
+      if (existente) await apiPUT(`/articulos/${existente.id}`, datos);
+      else await apiPOST('/articulos', datos);
+    } else {
+      await apiPOST('/articulos', datos);
+    }
+    lastImportErrors.splice(index, 1);
+    abrirErroresImportacion(lastImportErrors);
+    if (!lastImportErrors.length) cerrarModal('modal-import-errors');
+    renderInventario();
+    toast('Artículo corregido e importado', 'success');
+  } catch (error) {
+    lastImportErrors[index].error = error.message;
+    abrirErroresImportacion(lastImportErrors);
+    toast('No se pudo guardar: ' + error.message, 'error');
+  }
+}
+
+async function reintentarTodosErroresImportacion() {
+  for (let index = lastImportErrors.length - 1; index >= 0; index--) {
+    await reintentarErrorImportacion(index);
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -1123,6 +1287,7 @@ function switchTab(name, evt) {
   if (name === 'movimientos') renderMovimientos();
   if (name === 'barcode') renderBarcodeList();
   if (name === 'facturas') renderFacturas();
+  if (name === 'compras-mes') renderComprasPorMes();
   if (name === 'compras') renderListaCompras();
   if (name === 'cotizaciones') { cargarClientesCombo(); renderCotizacion(); }
   if (name === 'cobrar') renderCuentasCobrar();
@@ -1698,6 +1863,82 @@ function filtrarFacturas() {
     .catch(e => toast('Error al filtrar: ' + e.message, 'error'));
 }
 
+function inicializarFiltroComprasMes() {
+  const selector = document.getElementById('compras-mes-ano');
+  if (!selector || selector.options.length) return;
+  const anoActual = new Date().getFullYear();
+  selector.innerHTML = Array.from({ length: 6 }, (_, index) => {
+    const ano = anoActual - index;
+    return `<option value="${ano}">${ano}</option>`;
+  }).join('');
+}
+
+async function renderComprasPorMes() {
+  const tbody = document.getElementById('tbody-compras-mes');
+  const resumen = document.getElementById('tbody-resumen-compras-mes');
+  const empty = document.getElementById('compras-mes-empty');
+  if (!tbody || !resumen || !empty) return;
+  inicializarFiltroComprasMes();
+  const ano = document.getElementById('compras-mes-ano').value;
+  const mes = document.getElementById('compras-mes-mes').value;
+
+  try {
+    const facturas = await apiGET('/facturas', {
+      fecha_inicio: `${ano}-01-01`,
+      fecha_fin: `${ano}-12-31`
+    });
+    const meses = [
+      ['01', 'Enero'], ['02', 'Febrero'], ['03', 'Marzo'], ['04', 'Abril'],
+      ['05', 'Mayo'], ['06', 'Junio'], ['07', 'Julio'], ['08', 'Agosto'],
+      ['09', 'Septiembre'], ['10', 'Octubre'], ['11', 'Noviembre'], ['12', 'Diciembre']
+    ];
+    resumen.innerHTML = meses.map(([numero, nombre]) => {
+      const delMes = facturas.filter(factura => String(factura.fecha_emision || '').slice(5, 7) === numero);
+      const totalMes = delMes.reduce((suma, factura) => suma + (Number(factura.monto) || 0), 0);
+      return `<tr>
+        <td><strong>${nombre}</strong></td>
+        <td>${delMes.length}</td>
+        <td style="font-weight:600">${fmt(totalMes)}</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="seleccionarMesCompras('${numero}')">Ver detalle</button></td>
+      </tr>`;
+    }).join('');
+    const filtradas = facturas
+      .filter(factura => !mes || String(factura.fecha_emision || '').slice(5, 7) === mes)
+      .sort((a, b) => String(b.fecha_emision || '').localeCompare(String(a.fecha_emision || '')));
+    const total = filtradas.reduce((suma, factura) => suma + (Number(factura.monto) || 0), 0);
+    document.getElementById('compras-mes-count').textContent = filtradas.length;
+    document.getElementById('compras-mes-total').textContent = fmt(total);
+
+    if (!filtradas.length) {
+      tbody.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+    tbody.innerHTML = filtradas.map(factura => {
+      const fecha = String(factura.fecha_emision || '');
+      const mesNombre = fecha
+        ? new Date(`${fecha.slice(0, 10)}T00:00:00`).toLocaleDateString('es-DO', { month: 'long' })
+        : 'Sin mes';
+      return `<tr>
+        <td style="text-transform:capitalize">${mesNombre}</td>
+        <td>${fecha ? fecha.slice(0, 10) : '—'}</td>
+        <td>${factura.empresa || 'Sin proveedor'}</td>
+        <td><strong>${factura.numero || '—'}</strong></td>
+        <td style="font-weight:600">${fmt(factura.monto)}</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="editarFactura(${factura.id})" title="Editar factura">✏️</button></td>
+      </tr>`;
+    }).join('');
+  } catch (error) {
+    toast('Error al cargar compras por mes: ' + error.message, 'error');
+  }
+}
+
+function seleccionarMesCompras(mes) {
+  document.getElementById('compras-mes-mes').value = mes;
+  renderComprasPorMes();
+}
+
 async function abrirModalFactura(id) {
   editId = id || null;
   document.getElementById('modal-fact-title').textContent = id ? 'Editar Factura' : 'Nueva Factura';
@@ -1763,6 +2004,7 @@ async function guardarFactura() {
     }
     cerrarModal('modal-factura');
     renderFacturas();
+    renderComprasPorMes();
     renderDashboard();
   } catch(e) { toast('Error al guardar: ' + e.message, 'error'); }
 }
@@ -1855,12 +2097,27 @@ async function importarExcel(input) {
     const taskId = data.task_id;
     
     // Polling para monitorear el progreso
+    let pollInFlight = false;
+    let pollFailures = 0;
     const pollInterval = setInterval(async () => {
+      if (pollInFlight) return;
+      pollInFlight = true;
       try {
         const statusRes = await fetch(apiURL(`/importar-excel/status/${taskId}`), {
           headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
         });
+        if (!statusRes.ok) {
+          throw new Error(`Servidor respondió HTTP ${statusRes.status}`);
+        }
+        const contentType = statusRes.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          throw new Error('El servidor devolvió una respuesta no válida');
+        }
         const statusData = await statusRes.json();
+        if (!statusData.status || statusData.status === 'no_encontrado') {
+          throw new Error('La tarea de importación ya no existe; posiblemente el servidor se reinició');
+        }
+        pollFailures = 0;
         
         if (importCancelRequested && statusData.status === 'procesando') {
           // Cancelar la tarea
@@ -1883,10 +2140,12 @@ async function importarExcel(input) {
         
         if (statusData.status === 'completado') {
           clearInterval(pollInterval);
-          toast(`Importación completada: ${statusData.ok} artículos${statusData.err ? ' · Errores: ' + statusData.err : ''}`, 'success');
+          lastImportErrors = statusData.errors || [];
+          toast(`Importación completada: ${statusData.ok} artículos${statusData.err ? ' · Errores: ' + statusData.err : ''}`, statusData.err ? 'error' : 'success');
           renderInventario();
           renderDashboard();
           hideImportProgress();
+          if (lastImportErrors.length) abrirErroresImportacion(lastImportErrors);
           importCancelRequested = false;
         } else if (statusData.status === 'error') {
           clearInterval(pollInterval);
@@ -1900,10 +2159,17 @@ async function importarExcel(input) {
           importCancelRequested = false;
         }
       } catch(pollErr) {
-        clearInterval(pollInterval);
-        hideImportProgress();
-        toast('Error al monitorear progreso', 'error');
-        importCancelRequested = false;
+        pollFailures++;
+        if (pollFailures >= 3) {
+          clearInterval(pollInterval);
+          hideImportProgress();
+          toast('Error al monitorear progreso: ' + pollErr.message, 'error');
+          importCancelRequested = false;
+        } else {
+          updateImportProgress(5, `Reintentando consultar el progreso (${pollFailures}/3)...`);
+        }
+      } finally {
+        pollInFlight = false;
       }
     }, 1000);
     
@@ -1919,11 +2185,17 @@ async function importarExcel(input) {
         const rows = XLSX.utils.sheet_to_json(ws);
         if (!rows.length) { toast('Archivo vacío','error'); hideImportProgress(); return; }
         let ok = 0, err = 0;
+        const errors = [];
         for (let index = 0; index < rows.length; index++) {
           if (importCancelRequested) break;
           const r = rows[index];
           const nombre = String(r['Nombre']||r['nombre']||'').trim();
-          if (!nombre) { err++; updateImportProgress((index + 1) / rows.length * 100, `${index + 1}/${rows.length} · ${ok} ok, ${err} err`); continue; }
+          if (!nombre) {
+            err++;
+            errors.push({ fila: index + 2, datos: r, error: 'El nombre es requerido' });
+            updateImportProgress((index + 1) / rows.length * 100, `${index + 1}/${rows.length} · ${ok} ok, ${err} err`);
+            continue;
+          }
           const codigo = String(r['Código']||r['Codigo']||r['codigo']||'').trim();
           const dept = String(r['Departamento']||r['departamento']||'Ferretería').trim();
           const precio_costo = parseFloat(r['Precio de Costo']||r['PrecioCosto']||r['precio_costo']||r['precio']||0);
@@ -1939,10 +2211,22 @@ async function importarExcel(input) {
                 await apiPOST('/articulos', { codigo, nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min });
               }
             } else {
-              await apiPOST('/articulos', { nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min });
+              const existing = await apiGET('/articulos', { search: nombre, departamento: dept });
+              const sameArticle = existing.find(a =>
+                String(a.nombre || '').trim().toLowerCase() === nombre.toLowerCase() &&
+                String(a.departamento || '').trim().toLowerCase() === dept.toLowerCase()
+              );
+              if (sameArticle) {
+                await apiPUT(`/articulos/${sameArticle.id}`, { nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min });
+              } else {
+                await apiPOST('/articulos', { nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min });
+              }
             }
             ok++;
-          } catch(ex) { err++; }
+          } catch(ex) {
+            err++;
+            errors.push({ fila: index + 2, datos: r, error: ex.message || 'Error al guardar' });
+          }
           updateImportProgress((index + 1) / rows.length * 100, `${index + 1}/${rows.length} · ${ok} ok, ${err} err`);
         }
         if (importCancelRequested) {
@@ -1950,10 +2234,12 @@ async function importarExcel(input) {
         } else {
           toast(`Importados: ${ok} artículos${err ? ' · Errores: ' + err : ''}`, ok > 0 ? 'success' : 'error');
         }
+        lastImportErrors = errors;
         renderInventario();
         renderDashboard();
         hideImportProgress();
-      } catch(e3) { toast('Error al leer el archivo Excel','error'); }
+        if (lastImportErrors.length) abrirErroresImportacion(lastImportErrors);
+      } catch(e3) { toast('Error al leer el archivo Excel: ' + e3.message,'error'); }
     };
     reader.readAsBinaryString(file);
   }
@@ -2306,28 +2592,65 @@ async function enviarAComprasUrgentes(articulo_id, nombre, departamento, cantida
 //  EXPORTAR EXCEL / PDF
 // ═══════════════════════════════════════════
 
+function verificarXLSX() {
+  if (window.XLSX) return true;
+  toast('No se pudo cargar el exportador de Excel. Revisa tu conexión y recarga la página.', 'error');
+  return false;
+}
+
+function convertirArticulosAExcel(arts) {
+  return arts.map(a => {
+    const stock = Number(a.stock) || 0;
+    const precioCosto = Number(a.precio_costo) || 0;
+    const precioVenta = Number(a.precio_venta) || 0;
+    return {
+    'Código': a.codigo || '',
+    'Nombre': a.nombre || '',
+    'Departamento': a.departamento || '',
+    'Precio de Costo': precioCosto,
+    'Precio de Venta': precioVenta,
+    'Stock': stock,
+    'Costo Total': precioCosto * stock,
+    'Venta Total': precioVenta * stock,
+    'Stock Mínimo': a.stock_min || 0,
+    'Unidad': a.unidad || 'u.',
+    'Descripción': a.descripcion || '',
+    'Proveedor': a.proveedor || ''
+    };
+  });
+}
+
+function descargarArticulosExcel(arts, nombreArchivo, nombreHoja) {
+  if (!verificarXLSX()) return;
+  const ws = XLSX.utils.json_to_sheet(convertirArticulosAExcel(arts));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, nombreHoja);
+  XLSX.writeFile(wb, nombreArchivo);
+}
+
 async function exportarExcel() {
   try {
     const arts = await apiGET('/exportar-articulos');
     if (!arts.length) { toast('No hay artículos para exportar','error'); return; }
-    const data = arts.map(a => ({
-      'Código': a.codigo||'',
-      'Nombre': a.nombre,
-      'Departamento': a.departamento,
-      'Precio de Costo': a.precio_costo||0,
-      'Precio de Venta': a.precio_venta||0,
-      'Stock': a.stock,
-      'Stock Mínimo': a.stock_min,
-      'Unidad': a.unidad||'u.',
-      'Descripción': a.descripcion||'',
-      'Proveedor': a.proveedor||''
-    }));
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
-    XLSX.writeFile(wb, `inventario_ferrepro_${new Date().toISOString().split('T')[0]}.xlsx`);
+    descargarArticulosExcel(arts, `inventario_ferrepro_${new Date().toISOString().split('T')[0]}.xlsx`, 'Inventario');
     toast('Inventario exportado a Excel','success');
   } catch(e) { toast('Error al exportar: ' + e.message, 'error'); }
+}
+
+async function exportarStockBajoExcel() {
+  try {
+    const departamento = document.getElementById('export-stock-dept')?.value || '';
+    const params = { stock: 'bajo' };
+    if (departamento) params.departamento = departamento;
+    const bajos = await apiGET('/articulos', params);
+    if (!bajos.length) {
+      toast(`No hay artículos con stock bajo${departamento ? ` en ${departamento}` : ''}`, 'info');
+      return;
+    }
+    const sufijo = departamento ? `_${departamento.toLowerCase().replace(/[^a-z0-9]+/g, '_')}` : '';
+    descargarArticulosExcel(bajos, `stock_bajo${sufijo}_ferrepro_${new Date().toISOString().split('T')[0]}.xlsx`, 'Stock Bajo');
+    toast(`Stock bajo exportado${departamento ? ` de ${departamento}` : ''} a Excel`, 'success');
+  } catch(e) { toast('Error al exportar stock bajo: ' + e.message, 'error'); }
 }
 
 function descargarPlantilla() {

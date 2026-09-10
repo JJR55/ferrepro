@@ -6,7 +6,10 @@ Deployable on Vercel as serverless functions.
 import os
 import json
 import base64
+import csv
+import io
 import signal
+import unicodedata
 from datetime import datetime, date
 from flask import Flask, request, jsonify, send_file, send_from_directory, render_template
 from flask_cors import CORS
@@ -234,7 +237,7 @@ def limpiar_duplicados_articulos():
 
         for article in all_articles:
             current_id = article['id']
-            codigo = (article['codigo'] or '').strip().lower() # Normalizar y manejar códigos nulos/vacíos
+            codigo = _normalizar_codigo_importacion(article['codigo']).lower()
             nombre = (article['nombre'] or '').strip().lower()
             departamento = (article['departamento'] or '').strip().lower()
 
@@ -784,6 +787,88 @@ def get_stats():
 # Diccionario para guardar el estado de las importaciones
 import_tasks = {}
 
+
+def _normalizar_encabezado(value):
+    value = unicodedata.normalize("NFKD", str(value or ""))
+    value = "".join(char for char in value if not unicodedata.combining(char))
+    return "".join(char for char in value.lower() if char.isalnum())
+
+
+def _leer_filas_importacion(filename, content):
+    extension = os.path.splitext(filename.lower())[1]
+    if extension == ".csv":
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = content.decode("latin-1")
+        reader = csv.DictReader(io.StringIO(text))
+        return [{_normalizar_encabezado(key): value for key, value in row.items()} for row in reader]
+
+    if extension not in (".xlsx", ".xlsm", ".xltx", ".xltm"):
+        raise ValueError("Formato no compatible. Usa un archivo .xlsx o .csv")
+
+    import openpyxl
+    wb = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
+    ws = wb.active
+    rows = ws.iter_rows(values_only=True)
+    headers = next(rows, None)
+    if not headers:
+        return []
+    normalized_headers = [_normalizar_encabezado(header) for header in headers]
+    return [
+        dict(zip(normalized_headers, row))
+        for row in rows
+        if any(value is not None and str(value).strip() for value in row)
+    ]
+
+
+def _valor_fila(row, *names, default=None):
+    for name in names:
+        value = row.get(_normalizar_encabezado(name))
+        if value is not None and str(value).strip() != "":
+            return value
+    return default
+
+
+def _datos_fila_error(row):
+    return {key: value if isinstance(value, (str, int, float, bool)) or value is None else str(value)
+            for key, value in row.items()}
+
+
+def _normalizar_codigo_importacion(value):
+    codigo = str(value or '').strip()
+    if codigo.endswith('.0') and codigo[:-2].replace('.', '', 1).isdigit():
+        codigo = codigo[:-2]
+    return codigo
+
+
+def _numero_importacion(value, converter, default):
+    if value is None or str(value).strip() == "":
+        return default
+    text = str(value).strip().replace(" ", "")
+    if "," in text and "." not in text:
+        text = text.replace(",", ".")
+    return converter(float(text))
+
+
+def _buscar_articulo_importacion(codigo, nombre, departamento):
+    if codigo:
+        articulos = db.query(
+            "SELECT id, codigo FROM articulos WHERE LOWER(TRIM(codigo)) IN (LOWER(TRIM(?)), LOWER(TRIM(?)))",
+            [codigo, f"{codigo}.0"]
+        )
+        return next((articulo for articulo in articulos
+                     if _normalizar_codigo_importacion(articulo.get('codigo')) == codigo), None)
+    else:
+        articulos = db.query(
+            """SELECT id FROM articulos
+               WHERE LOWER(TRIM(nombre))=LOWER(TRIM(?))
+                 AND LOWER(TRIM(COALESCE(departamento, '')))=LOWER(TRIM(?))""",
+            [nombre, departamento]
+        )
+    return articulos[0] if articulos else None
+
+
 @app.route("/api/importar-excel", methods=["POST"])
 def importar_excel():
     """Import articles from Excel file."""
@@ -796,54 +881,58 @@ def importar_excel():
 
     task_id = str(uuid.uuid4())
     file_content = file.read()
-    import_tasks[task_id] = {"ok": 0, "err": 0, "total": 0, "status": "procesando", "cancelled": False}
+    import_tasks[task_id] = {"ok": 0, "err": 0, "total": 0, "status": "procesando", "cancelled": False, "errors": []}
 
-    def process_task(tid, content):
+    def process_task(tid, content, original_filename):
         try:
-            import openpyxl
-            wb = openpyxl.load_workbook(BytesIO(content))
-            ws = wb.active
-            rows = list(ws.iter_rows(min_row=2, values_only=True))
+            rows = _leer_filas_importacion(original_filename, content)
             import_tasks[tid]["total"] = len(rows)
 
-            for row in rows:
+            for row_number, row in enumerate(rows, start=2):
                 # Verificar si el usuario canceló la tarea
                 if import_tasks[tid].get("cancelled"):
                     import_tasks[tid]["status"] = "cancelado"
                     return
 
-                if not row or len(row) < 2 or not row[1]:
+                if not row:
                     import_tasks[tid]["err"] += 1
+                    import_tasks[tid]["errors"].append({"fila": row_number, "datos": {}, "error": "Fila vacía"})
                     continue
                 try:
-                    nombre = str(row[1]).strip() if row[1] is not None else ""
-                    codigo = str(row[0]).strip() if row[0] is not None else ""
-                    dept = str(row[2]).strip() if len(row) > 2 and row[2] is not None else "Ferretería"
-                    precio_costo = float(row[3]) if len(row) > 3 and row[3] is not None else 0
-                    precio_venta = float(row[4]) if len(row) > 4 and row[4] is not None else 0
-                    stock = int(row[5]) if len(row) > 5 and row[5] is not None else 0
-                    stock_min = int(row[6]) if len(row) > 6 and row[6] is not None else 5
+                    nombre = str(_valor_fila(row, "Nombre", default="")).strip()
+                    if not nombre:
+                        import_tasks[tid]["err"] += 1
+                        import_tasks[tid]["errors"].append({"fila": row_number, "datos": _datos_fila_error(row), "error": "El nombre es requerido"})
+                        continue
+                    codigo = _normalizar_codigo_importacion(_valor_fila(row, "Código", "Codigo", default=""))
+                    dept = str(_valor_fila(row, "Departamento", default="Ferretería")).strip()
+                    precio_costo = _numero_importacion(_valor_fila(row, "Precio de Costo", "PrecioCosto", "Precio", default=0), float, 0)
+                    precio_venta = _numero_importacion(_valor_fila(row, "Precio de Venta", "PrecioVenta", default=0), float, 0)
+                    stock = _numero_importacion(_valor_fila(row, "Stock", default=0), int, 0)
+                    stock_min = _numero_importacion(_valor_fila(row, "Stock Mínimo", "Stock Minimo", default=5), int, 5)
 
-                    if codigo:
-                        existing = db.query("SELECT id FROM articulos WHERE codigo=?", [codigo])
-                        if existing:
-                            db.execute("UPDATE articulos SET nombre=?, departamento=?, precio_costo=?, precio_venta=?, stock=?, stock_min=? WHERE codigo=?",
-                                      [nombre, dept, precio_costo, precio_venta, stock, stock_min, codigo])
-                        else:
-                            db.execute("INSERT INTO articulos(codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min) VALUES(?,?,?,?,?,?,?)",
-                                      [codigo, nombre, dept, precio_costo, precio_venta, stock, stock_min])
+                    existing = _buscar_articulo_importacion(codigo, nombre, dept)
+                    if existing:
+                        db.execute("""UPDATE articulos SET codigo=?, nombre=?, departamento=?,
+                                      precio_costo=?, precio_venta=?, stock=?, stock_min=? WHERE id=?""",
+                                   [codigo or None, nombre, dept, precio_costo, precio_venta,
+                                    stock, stock_min, existing["id"]])
                     else:
-                        db.execute("INSERT INTO articulos(nombre, departamento, precio_costo, precio_venta, stock, stock_min) VALUES(?,?,?,?,?,?)",
-                                  [nombre, dept, precio_costo, precio_venta, stock, stock_min])
+                        db.execute("""INSERT INTO articulos(codigo, nombre, departamento,
+                                      precio_costo, precio_venta, stock, stock_min)
+                                      VALUES(?,?,?,?,?,?,?)""",
+                                   [codigo or None, nombre, dept, precio_costo, precio_venta,
+                                    stock, stock_min])
                     import_tasks[tid]["ok"] += 1
-                except Exception:
+                except Exception as row_error:
                     import_tasks[tid]["err"] += 1
+                    import_tasks[tid]["errors"].append({"fila": row_number, "datos": _datos_fila_error(row), "error": str(row_error)})
             import_tasks[tid]["status"] = "completado"
         except Exception as e:
             import_tasks[tid]["status"] = "error"
             import_tasks[tid]["error"] = str(e)
 
-    threading.Thread(target=process_task, args=(task_id, file_content)).start()
+    threading.Thread(target=process_task, args=(task_id, file_content, file.filename)).start()
     return jsonify({"ok": True, "task_id": task_id})
 
 @app.route("/api/importar-excel/status/<task_id>")
