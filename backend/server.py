@@ -127,8 +127,8 @@ def create_articulo():
         return jsonify({"error": "El nombre es requerido"}), 400
     
     sql = """INSERT INTO articulos 
-             (codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, descripcion, proveedor_id, unidad)
-             VALUES (?,?,?,?,?,?,?,?,?,?)"""
+             (codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, stock_max, descripcion, proveedor_id, unidad)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?)"""
     try:
         db.execute(sql, [
             data.get("codigo", ""),
@@ -138,6 +138,7 @@ def create_articulo():
             float(data.get("precio_venta", 0)),
             int(data.get("stock", 0)),
             int(data.get("stock_min", 5)),
+            int(data.get("stock_max", data.get("stock_min", 5))),
             data.get("descripcion", ""),
             data.get("proveedor_id"),
             data.get("unidad", "u.")
@@ -161,7 +162,7 @@ def create_articulos_batch():
         nombre = item.get("nombre")
         if not nombre:
             return jsonify({"error": "Cada articulo necesita 'nombre'"}), 400
-        sql_parts.append("INSERT INTO articulos (codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, descripcion, proveedor_id, unidad) VALUES (?,?,?,?,?,?,?,?,?,?);")
+        sql_parts.append("INSERT INTO articulos (codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, stock_max, descripcion, proveedor_id, unidad) VALUES (?,?,?,?,?,?,?,?,?,?,?);")
         params.extend([
             item.get("codigo", ""),
             nombre,
@@ -170,6 +171,7 @@ def create_articulos_batch():
             float(item.get("precio_venta", 0)),
             int(item.get("stock", 0)),
             int(item.get("stock_min", 5)),
+            int(item.get("stock_max", item.get("stock_min", 5))),
             item.get("descripcion", ""),
             item.get("proveedor_id"),
             item.get("unidad", "u.")
@@ -189,7 +191,7 @@ def update_articulo(art_id):
         return jsonify({"error": "El nombre es requerido"}), 400
     
     sql = """UPDATE articulos SET codigo=?, nombre=?, departamento=?, precio_costo=?, precio_venta=?,
-             stock=?, stock_min=?, descripcion=?, proveedor_id=?, unidad=? WHERE id=?"""
+             stock=?, stock_min=?, stock_max=?, descripcion=?, proveedor_id=?, unidad=? WHERE id=?"""
     try:
         db.execute(sql, [
             data.get("codigo", ""),
@@ -199,6 +201,7 @@ def update_articulo(art_id):
             float(data.get("precio_venta", 0)),
             int(data.get("stock", 0)),
             int(data.get("stock_min", 5)),
+            int(data.get("stock_max", data.get("stock_min", 5))),
             data.get("descripcion", ""),
             data.get("proveedor_id"),
             data.get("unidad", "u."),
@@ -910,19 +913,22 @@ def importar_excel():
                     precio_venta = _numero_importacion(_valor_fila(row, "Precio de Venta", "PrecioVenta", default=0), float, 0)
                     stock = _numero_importacion(_valor_fila(row, "Stock", default=0), int, 0)
                     stock_min = _numero_importacion(_valor_fila(row, "Stock Mínimo", "Stock Minimo", default=5), int, 5)
+                    stock_max = _numero_importacion(_valor_fila(row, "Stock Máximo", "Stock Maximo", default=stock_min), int, stock_min)
+                    if stock_max < stock_min:
+                        stock_max = stock_min
 
                     existing = _buscar_articulo_importacion(codigo, nombre, dept)
                     if existing:
                         db.execute("""UPDATE articulos SET codigo=?, nombre=?, departamento=?,
-                                      precio_costo=?, precio_venta=?, stock=?, stock_min=? WHERE id=?""",
+                                                                            precio_costo=?, precio_venta=?, stock=?, stock_min=?, stock_max=? WHERE id=?""",
                                    [codigo or None, nombre, dept, precio_costo, precio_venta,
-                                    stock, stock_min, existing["id"]])
+                                                                        stock, stock_min, stock_max, existing["id"]])
                     else:
                         db.execute("""INSERT INTO articulos(codigo, nombre, departamento,
-                                      precio_costo, precio_venta, stock, stock_min)
-                                      VALUES(?,?,?,?,?,?,?)""",
+                                                                            precio_costo, precio_venta, stock, stock_min, stock_max)
+                                                                            VALUES(?,?,?,?,?,?,?,?)""",
                                    [codigo or None, nombre, dept, precio_costo, precio_venta,
-                                    stock, stock_min])
+                                                                        stock, stock_min, stock_max])
                     import_tasks[tid]["ok"] += 1
                 except Exception as row_error:
                     import_tasks[tid]["err"] += 1
@@ -951,7 +957,7 @@ def cancel_import_task(task_id):
 def exportar_articulos():
     """Export all articles as JSON (frontend converts to Excel)."""
     items = db.query(
-        """SELECT codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, 
+        """SELECT codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, stock_max,
                   unidad, descripcion, p.empresa as proveedor 
            FROM articulos a LEFT JOIN proveedores p ON a.proveedor_id=p.id 
            ORDER BY a.nombre"""
@@ -1027,12 +1033,12 @@ def restore_backup(backup_id):
         # Restore articulos
         for art in data.get("articulos", []):
             db.execute(
-                """INSERT INTO articulos (id, codigo, nombre, departamento, precio_costo, precio_venta, 
-                   stock, stock_min, descripcion, proveedor_id, unidad)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                     """INSERT INTO articulos (id, codigo, nombre, departamento, precio_costo, precio_venta,
+                         stock, stock_min, stock_max, descripcion, proveedor_id, unidad)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 [art.get("id"), art.get("codigo"), art.get("nombre"), art.get("departamento"),
                  art.get("precio_costo"), art.get("precio_venta"), art.get("stock"),
-                 art.get("stock_min"), art.get("descripcion"), art.get("proveedor_id"),
+                      art.get("stock_min"), art.get("stock_max", art.get("stock_min", 5)), art.get("descripcion"), art.get("proveedor_id"),
                  art.get("unidad", "u.")]
             )
         
@@ -1111,10 +1117,10 @@ def restore_upload_backup():
         # Restore all
         for art in data.get("articulos", []):
             db.execute(
-                "INSERT INTO articulos (id, codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, descripcion, proveedor_id, unidad) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO articulos (id, codigo, nombre, departamento, precio_costo, precio_venta, stock, stock_min, stock_max, descripcion, proveedor_id, unidad) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 [art.get("id"), art.get("codigo"), art.get("nombre"), art.get("departamento"),
                  art.get("precio_costo"), art.get("precio_venta"), art.get("stock"),
-                 art.get("stock_min"), art.get("descripcion"), art.get("proveedor_id"),
+                 art.get("stock_min"), art.get("stock_max", art.get("stock_min", 5)), art.get("descripcion"), art.get("proveedor_id"),
                  art.get("unidad", "u.")]
             )
         

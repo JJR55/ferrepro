@@ -176,7 +176,7 @@ def init_db():
         id %s,
         codigo TEXT UNIQUE, nombre TEXT, departamento TEXT,
         precio_costo DOUBLE PRECISION DEFAULT 0, precio_venta DOUBLE PRECISION DEFAULT 0,
-        stock INTEGER DEFAULT 0, stock_min INTEGER DEFAULT 5,
+        stock INTEGER DEFAULT 0, stock_min INTEGER DEFAULT 5, stock_max INTEGER DEFAULT 5,
         descripcion TEXT, proveedor_id INTEGER, unidad TEXT DEFAULT 'u.',
         codigo_barras TEXT DEFAULT ''
     )""" % pk_type)
@@ -256,6 +256,13 @@ def init_db():
         execute("ALTER TABLE articulos ADD COLUMN IF NOT EXISTS codigo_barras TEXT DEFAULT ''")
     except Exception:
         pass  # Column already exists or not supported
+
+    # Add stock_max for existing databases. It represents the target quantity after replenishment.
+    try:
+        execute("ALTER TABLE articulos ADD COLUMN IF NOT EXISTS stock_max INTEGER DEFAULT 5")
+        execute("UPDATE articulos SET stock_max=stock_min WHERE stock_max IS NULL OR stock_max=0 OR (stock_max=5 AND stock_min<>5)")
+    except Exception:
+        pass
 
     # Asegurar que articulo_id exista en lista_compras para vinculación
     try:

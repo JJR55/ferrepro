@@ -335,7 +335,7 @@ tbody tr:hover{background:var(--bg)}
       <div class="io-card">
         <div class="io-icon">📥</div>
         <div class="io-title">Importar desde Excel</div>
-        <div class="io-desc">Sube un archivo .xlsx o .csv con columnas: Código, Nombre, Departamento, Precio de Costo, Precio de Venta, Stock, Stock Mínimo</div>
+          <div class="io-desc">Sube un archivo .xlsx o .csv con columnas: Código, Nombre, Departamento, Precio de Costo, Precio de Venta, Existencia, Stock Mínimo, Stock Máximo</div>
         <label class="btn btn-secondary btn-sm" style="cursor:pointer">
           Seleccionar archivo <input type="file" accept=".xlsx,.csv" style="display:none" onchange="importarExcel(this)">
         </label>
@@ -399,7 +399,7 @@ tbody tr:hover{background:var(--bg)}
         <thead><tr>
           <th>Código</th><th>Nombre</th><th>Departamento</th>
             <th>Precio Costo</th><th>Precio Venta</th>
-            <th>Stock</th><th>Stock Mín.</th><th>Estado</th><th>Acciones</th>
+            <th>Existencia</th><th>Stock Mín.</th><th>Stock Máx.</th><th>Estado</th><th>Acciones</th>
         </tr></thead>
         <tbody id="tbody-inv"></tbody>
       </table>
@@ -657,7 +657,7 @@ tbody tr:hover{background:var(--bg)}
         </div>
         <div class="form-group"><label>Cantidad *</label>
           <input type="number" id="mov-cantidad" min="1" value="1">
-          <small style="color:var(--text3)" id="mov-stock-actual">Stock actual: —</small>
+          <small style="color:var(--text3)" id="mov-stock-actual">Existencia actual: —</small>
         </div>
         <div class="form-group"><label>Referencia / Factura</label>
           <input type="text" id="mov-referencia" placeholder="N° factura, orden, etc.">
@@ -803,8 +803,9 @@ tbody tr:hover{background:var(--bg)}
       </div>
       <div class="form-group"><label>Precio de Costo (RD$) *</label><input type="number" id="art-precio-costo" min="0" step="0.01" placeholder="0.00"></div>
       <div class="form-group"><label>Precio de Venta (RD$) *</label><input type="number" id="art-precio-venta" min="0" step="0.01" placeholder="0.00"></div>
-      <div class="form-group"><label>Stock Actual *</label><input type="number" id="art-stock" min="0" placeholder="0"></div>
-      <div class="form-group"><label>Stock Mínimo *</label><input type="number" id="art-min" min="0" placeholder="5"></div>
+      <div class="form-group"><label>Existencia actual *</label><input type="number" id="art-stock" min="0" placeholder="0"></div>
+      <div class="form-group"><label>Stock mínimo *</label><input type="number" id="art-min" min="0" placeholder="6"></div>
+      <div class="form-group"><label>Stock máximo *</label><input type="number" id="art-max" min="0" placeholder="12"></div>
       <div class="form-group span2"><label>Descripción</label><textarea id="art-desc" rows="2" style="resize:vertical"></textarea></div>
       <div class="form-group"><label>Proveedor</label>
         <select id="art-prov"><option value="">— Sin proveedor —</option></select>
@@ -1143,6 +1144,7 @@ function abrirErroresImportacion(errores) {
         <label>Precio venta<input type="number" step="0.01" id="import-error-venta-${index}" value="${escapeHtml(valorImportacion(datos, 'Precio de Venta', 'PrecioVenta'))}"></label>
         <label>Stock<input type="number" id="import-error-stock-${index}" value="${escapeHtml(valorImportacion(datos, 'Stock'))}"></label>
         <label>Stock mínimo<input type="number" id="import-error-min-${index}" value="${escapeHtml(valorImportacion(datos, 'Stock Mínimo', 'Stock Minimo'))}"></label>
+        <label>Stock máximo<input type="number" id="import-error-max-${index}" value="${escapeHtml(valorImportacion(datos, 'Stock Máximo', 'Stock Maximo'))}"></label>
       </div>
       <button class="btn btn-primary btn-sm" onclick="reintentarErrorImportacion(${index})">Guardar y reintentar</button>
     </div>`;
@@ -1159,7 +1161,8 @@ function datosEditadosErrorImportacion(index) {
   return {
     codigo: valor('codigo'), nombre: valor('nombre'), departamento: 'Ferretería',
     precio_costo: parseFloat(valor('costo')) || 0, precio_venta: parseFloat(valor('venta')) || 0,
-    stock: parseInt(valor('stock'), 10) || 0, stock_min: parseInt(valor('min'), 10) || 5
+    stock: parseInt(valor('stock'), 10) || 0, stock_min: parseInt(valor('min'), 10) || 5,
+    stock_max: parseInt(valor('max'), 10) || parseInt(valor('min'), 10) || 5
   };
 }
 
@@ -1587,6 +1590,7 @@ async function renderInventario(lista) {
         <td>${fmt(a.precio_venta||0)}</td>
         <td style="font-weight:600;color:${bajo?'var(--red)':'inherit'}">${a.stock} ${a.unidad||'u.'}</td>
         <td style="color:var(--text3)">${a.stock_min}</td>
+        <td style="color:var(--text3)">${a.stock_max || a.stock_min}</td>
         <td>${estadoHTML}</td>
         <td><div class="actions-cell">
           ${bajo ? `<button class="btn btn-amber btn-sm" onclick="enviarAComprasUrgentes(${a.id}, '${a.nombre.replace(/'/g, "\\'")}', '${a.departamento||'Ferretería'}', ${Math.max(0, a.stock_min - a.stock)})" title="Enviar a Compras Urgentes">🛒</button>` : ''}
@@ -1651,12 +1655,13 @@ async function abrirModalArticulo(id) {
       document.getElementById('art-precio-venta').value = a.precio_venta||0;
       document.getElementById('art-stock').value = a.stock||0;
       document.getElementById('art-min').value = a.stock_min||0;
+      document.getElementById('art-max').value = a.stock_max || a.stock_min || 0;
       document.getElementById('art-desc').value = a.descripcion||'';
       document.getElementById('art-prov').value = a.proveedor_id||'';
       document.getElementById('art-unidad').value = a.unidad||'';
     } catch(e) { toast('Error al cargar artículo','error'); return; }
   } else {
-    ['art-codigo','art-nombre','art-precio-costo','art-precio-venta','art-stock','art-min','art-desc','art-unidad'].forEach(id => document.getElementById(id).value='');
+    ['art-codigo','art-nombre','art-precio-costo','art-precio-venta','art-stock','art-min','art-max','art-desc','art-unidad'].forEach(id => document.getElementById(id).value='');
     document.getElementById('art-dept').value='Ferretería';
     document.getElementById('art-prov').value='';
   }
@@ -1673,12 +1678,14 @@ async function guardarArticulo() {
   const precio_venta = parseFloat(document.getElementById('art-precio-venta').value)||0;
   const stock = parseInt(document.getElementById('art-stock').value)||0;
   const min = parseInt(document.getElementById('art-min').value)||0;
+  const max = parseInt(document.getElementById('art-max').value);
   const desc = document.getElementById('art-desc').value.trim();
   const provId = document.getElementById('art-prov').value||null;
   const unidad = document.getElementById('art-unidad').value.trim();
   if (!nombre) { toast('El nombre es requerido','error'); return; }
   
-  const body = { codigo, nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min: min, descripcion: desc, proveedor_id: provId, unidad };
+  if (Number.isNaN(max) || max < min) { toast('El stock máximo debe ser igual o mayor que el mínimo','error'); return; }
+  const body = { codigo, nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min: min, stock_max: max, descripcion: desc, proveedor_id: provId, unidad };
   
   try {
     if (editId) {
@@ -2202,13 +2209,14 @@ async function importarExcel(input) {
           const precio_venta = parseFloat(r['Precio de Venta']||r['PrecioVenta']||r['precio_venta']||0);
           const stock = parseInt(r['Stock']||r['stock']||0);
           const stock_min = parseInt(r['Stock Mínimo']||r['Stock Minimo']||r['stock_min']||5);
+          const stock_max = parseInt(r['Stock Máximo']||r['Stock Maximo']||r['stock_max']||stock_min);
           try {
             if (codigo) {
               const existing = await apiGET('/articulos?search=' + encodeURIComponent(codigo));
               if (existing.length && existing.some(a => a.codigo === codigo)) {
-                await apiPUT(`/articulos/${existing.find(a => a.codigo === codigo).id}`, { nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min });
+                await apiPUT(`/articulos/${existing.find(a => a.codigo === codigo).id}`, { nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min, stock_max });
               } else {
-                await apiPOST('/articulos', { codigo, nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min });
+                await apiPOST('/articulos', { codigo, nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min, stock_max });
               }
             } else {
               const existing = await apiGET('/articulos', { search: nombre, departamento: dept });
@@ -2217,9 +2225,9 @@ async function importarExcel(input) {
                 String(a.departamento || '').trim().toLowerCase() === dept.toLowerCase()
               );
               if (sameArticle) {
-                await apiPUT(`/articulos/${sameArticle.id}`, { nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min });
+                await apiPUT(`/articulos/${sameArticle.id}`, { nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min, stock_max });
               } else {
-                await apiPOST('/articulos', { nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min });
+                await apiPOST('/articulos', { nombre, departamento: dept, precio_costo, precio_venta, stock, stock_min, stock_max });
               }
             }
             ok++;
@@ -2613,6 +2621,7 @@ function convertirArticulosAExcel(arts) {
     'Costo Total': precioCosto * stock,
     'Venta Total': precioVenta * stock,
     'Stock Mínimo': a.stock_min || 0,
+    'Stock Máximo': a.stock_max || a.stock_min || 0,
     'Unidad': a.unidad || 'u.',
     'Descripción': a.descripcion || '',
     'Proveedor': a.proveedor || ''
@@ -2648,7 +2657,23 @@ async function exportarStockBajoExcel() {
       return;
     }
     const sufijo = departamento ? `_${departamento.toLowerCase().replace(/[^a-z0-9]+/g, '_')}` : '';
-    descargarArticulosExcel(bajos, `stock_bajo${sufijo}_ferrepro_${new Date().toISOString().split('T')[0]}.xlsx`, 'Stock Bajo');
+    if (!verificarXLSX()) return;
+    const data = bajos.map(articulo => {
+      const existencia = Number(articulo.stock) || 0;
+      const minimo = Number(articulo.stock_min) || 0;
+      const maximo = Number(articulo.stock_max) || minimo;
+      return {
+        'Artículo': articulo.nombre || '',
+        'Existencia': existencia,
+        'Stock Mínimo': minimo,
+        'Stock Máximo': maximo,
+        'Cantidad a Comprar': Math.max(0, maximo - existencia)
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Stock Bajo');
+    XLSX.writeFile(wb, `stock_bajo${sufijo}_ferrepro_${new Date().toISOString().split('T')[0]}.xlsx`);
     toast(`Stock bajo exportado${departamento ? ` de ${departamento}` : ''} a Excel`, 'success');
   } catch(e) { toast('Error al exportar stock bajo: ' + e.message, 'error'); }
 }
@@ -3003,7 +3028,7 @@ function seleccionarMovimiento(id, nombre, stock) {
   document.getElementById('mov-search').value = nombre;
   document.getElementById('mov-articulo-id').value = id;
   document.getElementById('mov-autocomplete').style.display = 'none';
-  document.getElementById('mov-stock-actual').textContent = `Stock actual: ${stock}`;
+  document.getElementById('mov-stock-actual').textContent = `Existencia actual: ${stock}`;
   document.getElementById('mov-cantidad').focus();
 }
 
@@ -3024,7 +3049,7 @@ async function registrarMovimiento() {
       document.getElementById('mov-cantidad').value = '1';
       document.getElementById('mov-referencia').value = '';
       document.getElementById('mov-motivo').value = '';
-      document.getElementById('mov-stock-actual').textContent = 'Stock actual: —';
+      document.getElementById('mov-stock-actual').textContent = 'Existencia actual: —';
       renderMovimientos();
     }
   } catch(e) { toast('Error: ' + e.message, 'error'); }
