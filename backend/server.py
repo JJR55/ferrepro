@@ -518,7 +518,9 @@ def get_lista_compras():
     conds = []
     if filtro == "historial":
         conds.append("estado IN ('recibido', 'faltante')")
-    elif not filtro:
+    elif filtro in ('borrador', 'pedido'):
+        conds.append("estado = 'pedido'")
+    else:
         conds.append("estado = 'pendiente'")
     
     if departamento:
@@ -595,7 +597,7 @@ def update_lista_compra(item_id):
                                   VALUES (?,?,?,?,?,?,?)""",
                                [art_id, 'entrada', cant, old_stock, new_stock, f"Compra L-C #{item_id}", "Pedido urgente recibido"])
         else:
-            db.execute("UPDATE lista_compras SET estado=? WHERE id=?", [estado, item_id])
+            db.execute("UPDATE lista_compras SET estado=?, completado_at=NULL WHERE id=?", [estado, item_id])
     return jsonify({"ok": True})
 
 

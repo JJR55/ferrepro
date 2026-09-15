@@ -607,7 +607,7 @@ tbody tr:hover{background:var(--bg)}
     </div>
     <div style="display:flex;gap:10px;margin-bottom:1rem;border-bottom:1.5px solid var(--border)">
       <button class="tab-btn active" id="btn-compra-pend" onclick="cambiarSubTabCompra('pendiente')" style="padding:10px 15px;font-size:12px;border-bottom-width:3px">🛒 Por Pedir</button>
-      <button class="tab-btn" id="btn-compra-borr" onclick="cambiarSubTabCompra('borrador')" style="padding:10px 15px;font-size:12px;border-bottom-width:3px">📝 Borrador (Push)</button>
+      <button class="tab-btn" id="btn-compra-borr" onclick="cambiarSubTabCompra('borrador')" style="padding:10px 15px;font-size:12px;border-bottom-width:3px">🚀 Pedidos (Push)</button>
     </div>
     <div class="toolbar">
       <div class="search-box">
@@ -801,7 +801,7 @@ tbody tr:hover{background:var(--bg)}
           <option>Plomería</option><option>Electricidad</option><option>Hogar</option>
         </select>
       </div>
-      <div class="form-group"><label>Precio de Costo (RD$) *</label><input type="number" id="art-precio-costo" min="0" step="0.01" placeholder="0.00"></div>
+      <div class="form-group"><label>Precio de Costo (RD$) *</label><inpsut type="number" id="art-precio-costo" min="0" step="0.01" placeholder="0.00"></div>
       <div class="form-group"><label>Precio de Venta (RD$) *</label><input type="number" id="art-precio-venta" min="0" step="0.01" placeholder="0.00"></div>
       <div class="form-group"><label>Existencia actual *</label><input type="number" id="art-stock" min="0" placeholder="0"></div>
       <div class="form-group"><label>Stock mínimo *</label><input type="number" id="art-min" min="0" placeholder="6"></div>
@@ -2460,8 +2460,12 @@ async function guardarEdicionItemCompra() {
 }
 
 async function cambiarEstadoCompra(id, estado) {
-  await apiPUT(`/lista-compras/${id}`, { estado });
-  renderListaCompras();
+  try {
+    await apiPUT(`/lista-compras/${id}`, { estado });
+    renderListaCompras();
+    if (estado === 'pedido') toast('Artículo enviado a Pedidos (Push)', 'success');
+    if (estado === 'recibido') toast('Artículo recibido y movido al historial', 'success');
+  } catch(e) { toast('Error al actualizar el pedido: ' + e.message, 'error'); }
 }
 
 async function eliminarItemCompra(id) {
